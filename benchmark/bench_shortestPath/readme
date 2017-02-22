@@ -1,0 +1,5 @@
+how to make:under the /GraphBIG/benchmark/-->        
+make clean all
+
+how to run:under /GraphBIG/benchmark/bench_shortestPath   -->
+./sssp --dataset tmpData/ 

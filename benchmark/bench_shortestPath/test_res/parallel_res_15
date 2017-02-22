@@ -1,0 +1,94 @@
+
+
+Now output the top 30 Shortest paths bwteen nodes: 10-->389(run 16 out of 16)
+The top 30 shortest loopless paths(the acutal number of running iteration is 62):
+
+The 1 result with metrics:   min_cost is 8.8279; sum_distance is 5.99754; sum_hops is 5.
+The 1 result with path nodes: -->10-->27-->367-->368-->369-->389
+
+The 2 result with metrics:   min_cost is 11.9071; sum_distance is 5.94755; sum_hops is 4.
+The 2 result with path nodes: -->10-->350-->349-->369-->389
+
+The 3 result with metrics:   min_cost is 12.6878; sum_distance is 4.85671; sum_hops is 5.
+The 3 result with path nodes: -->10-->350-->351-->368-->369-->389
+
+The 4 result with metrics:   min_cost is 12.9529; sum_distance is 9.93881; sum_hops is 6.
+The 4 result with path nodes: -->10-->27-->367-->350-->349-->369-->389
+
+The 5 result with metrics:   min_cost is 13.216; sum_distance is 9.95646; sum_hops is 7.
+The 5 result with path nodes: -->10-->27-->367-->368-->348-->349-->369-->389
+
+The 6 result with metrics:   min_cost is 13.5717; sum_distance is 7.01149; sum_hops is 5.
+The 6 result with path nodes: -->10-->27-->28-->29-->369-->389
+
+The 7 result with metrics:   min_cost is 13.6313; sum_distance is 5.45355; sum_hops is 4.
+The 7 result with path nodes: -->10-->350-->370-->369-->389
+
+The 8 result with metrics:   min_cost is 13.7336; sum_distance is 8.84798; sum_hops is 7.
+The 8 result with path nodes: -->10-->27-->367-->350-->351-->368-->369-->389
+
+The 9 result with metrics:   min_cost is 13.8139; sum_distance is 5.08109; sum_hops is 5.
+The 9 result with path nodes: -->10-->11-->28-->29-->369-->389
+
+The 10 result with metrics:   min_cost is 14.1537; sum_distance is 6.81425; sum_hops is 5.
+The 10 result with path nodes: -->10-->27-->28-->368-->369-->389
+
+The 11 result with metrics:   min_cost is 14.2211; sum_distance is 5.52893; sum_hops is 4.
+The 11 result with path nodes: -->10-->30-->29-->369-->389
+
+The 12 result with metrics:   min_cost is 14.3959; sum_distance is 4.88385; sum_hops is 5.
+The 12 result with path nodes: -->10-->11-->28-->368-->369-->389
+
+The 13 result with metrics:   min_cost is 14.4978; sum_distance is 6.65142; sum_hops is 4.
+The 13 result with path nodes: -->10-->9-->29-->369-->389
+
+The 14 result with metrics:   min_cost is 14.5117; sum_distance is 6.589; sum_hops is 6.
+The 14 result with path nodes: -->10-->27-->47-->387-->370-->369-->389
+
+The 15 result with metrics:   min_cost is 14.5673; sum_distance is 7.13563; sum_hops is 4.
+The 15 result with path nodes: -->10-->9-->349-->369-->389
+
+The 16 result with metrics:   min_cost is 14.6771; sum_distance is 9.44481; sum_hops is 6.
+The 16 result with path nodes: -->10-->27-->367-->350-->370-->369-->389
+
+The 17 result with metrics:   min_cost is 15.1341; sum_distance is 4.49192; sum_hops is 5.
+The 17 result with path nodes: -->10-->11-->351-->368-->369-->389
+
+The 18 result with metrics:   min_cost is 15.2438; sum_distance is 5.6904; sum_hops is 5.
+The 18 result with path nodes: -->10-->350-->351-->352-->372-->389
+
+The 19 result with metrics:   min_cost is 15.3514; sum_distance is 7.75795; sum_hops is 7.
+The 19 result with path nodes: -->10-->27-->28-->45-->65-->66-->49-->389
+
+The 20 result with metrics:   min_cost is 15.4712; sum_distance is 7.36046; sum_hops is 7.
+The 20 result with path nodes: -->10-->27-->7-->347-->367-->368-->369-->389
+
+The 21 result with metrics:   min_cost is 15.5317; sum_distance is 7.87426; sum_hops is 6.
+The 21 result with path nodes: -->10-->27-->367-->387-->370-->369-->389
+
+The 22 result with metrics:   min_cost is 15.5936; sum_distance is 5.82755; sum_hops is 7.
+The 22 result with path nodes: -->10-->11-->28-->45-->65-->66-->49-->389
+
+The 23 result with metrics:   min_cost is 16.0565; sum_distance is 7.2619; sum_hops is 6.
+The 23 result with path nodes: -->10-->350-->349-->348-->368-->369-->389
+
+The 24 result with metrics:   min_cost is 16.2897; sum_distance is 9.68167; sum_hops is 7.
+The 24 result with path nodes: -->10-->27-->367-->350-->351-->352-->372-->389
+
+The 25 result with metrics:   min_cost is 16.5607; sum_distance is 7.88319; sum_hops is 7.
+The 25 result with path nodes: -->10-->27-->367-->384-->385-->368-->369-->389
+
+The 26 result with metrics:   min_cost is 16.8503; sum_distance is 8.59677; sum_hops is 6.
+The 26 result with path nodes: -->10-->350-->333-->353-->370-->369-->389
+
+The 27 result with metrics:   min_cost is 16.9206; sum_distance is 8.30715; sum_hops is 7.
+The 27 result with path nodes: -->10-->27-->367-->368-->28-->29-->369-->389
+
+The 28 result with metrics:   min_cost is 17.021; sum_distance is 6.33876; sum_hops is 5.
+The 28 result with path nodes: -->10-->27-->28-->29-->49-->389
+
+The 29 result with metrics:   min_cost is 17.0759; sum_distance is 8.81563; sum_hops is 7.
+The 29 result with path nodes: -->10-->350-->351-->368-->348-->349-->369-->389
+
+The 30 result with metrics:   min_cost is 17.1025; sum_distance is 8.18032; sum_hops is 6.
+The 30 result with path nodes: -->10-->350-->333-->353-->352-->372-->389

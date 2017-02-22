@@ -1,0 +1,152 @@
+==================================================================
+   ________                    .__   __________.___  ________ 
+  /  _____/___________  ______ |  |__\______   \   |/  _____/ 
+ /   \  __\_  __ \__  \ \____ \|  |  \|    |  _/   /   \  ___ 
+ \    \_\  \  | \// __ \|  |_> >   Y  \    |   \   \    \_\  \
+  \______  /__|  (____  /   __/|___|  /______  /___|\______  /
+         \/           \/|__|        \/       \/            \/ 
+                                                                 
+==================================================================
+Benchmark: sssp shortest path
+...
+AGG_pair_num is 16; Kvalue is 30
+max_phy_dist is 10
+max_phy_hops is 8
+
+Start running serial test
+loading data... 
+== 400 vertices  2444 edges
+== time: 0.00763702 sec
+
+loading data... 
+== 400 vertices  2444 edges
+== time: 0.00550008 sec
+
+loading data... 
+== 400 vertices  2444 edges
+== time: 0.00571108 sec
+
+loading data... 
+== 400 vertices  2444 edges
+== time: 0.00510907 sec
+
+loading data... 
+== 400 vertices  2444 edges
+== time: 0.00479794 sec
+
+loading data... 
+== 400 vertices  2444 edges
+== time: 0.00446701 sec
+
+loading data... 
+== 400 vertices  2444 edges
+== time: 0.00452304 sec
+
+loading data... 
+== 400 vertices  2444 edges
+== time: 0.00416589 sec
+
+loading data... 
+== 400 vertices  2444 edges
+== time: 0.00402689 sec
+
+loading data... 
+== 400 vertices  2444 edges
+== time: 0.00383496 sec
+
+loading data... 
+== 400 vertices  2444 edges
+== time: 0.00364518 sec
+
+loading data... 
+== 400 vertices  2444 edges
+== time: 0.00365305 sec
+
+loading data... 
+== 400 vertices  2444 edges
+== time: 0.00349903 sec
+
+loading data... 
+== 400 vertices  2444 edges
+== time: 0.00345516 sec
+
+loading data... 
+== 400 vertices  2444 edges
+== time: 0.00322104 sec
+
+loading data... 
+== 400 vertices  2444 edges
+== time: 0.00308704 sec
+
+== Total ruuning time: 0.172524 sec
+==================================================================
+
+Start running openMP test
+loading data... 
+loading data... 
+loading data... 
+loading data... 
+loading data... 
+loading data... 
+loading data... 
+loading data... 
+loading data... 
+loading data... 
+loading data... 
+loading data... 
+loading data... 
+loading data... 
+loading data... 
+loading data... 
+== 400 vertices  2444 edges
+== time: 0.00357103 sec
+
+== 400 vertices  2444 edges
+== time: 0.0164161 sec
+
+== 400 vertices  2444 edges
+== time: 0.0172451 sec
+
+== 400 vertices  2444 edges
+== time: 0.017446 sec
+
+== 400 vertices  2444 edges
+== time: 0.019742 sec
+
+== 400 vertices  2444 edges
+== time: 0.0204911 sec
+
+== 400 vertices  2444 edges
+== time: 0.0213661 sec
+
+== 400 vertices  2444 edges
+== time: 0.0216069 sec
+
+== 400 vertices  2444 edges
+== time: 0.021765 sec
+
+== 400 vertices  2444 edges
+== time: 0.0219719 sec
+
+== 400 vertices  2444 edges
+== time: 0.021822 sec
+
+== 400 vertices  2444 edges
+== time: 0.02192 sec
+
+== 400 vertices  2444 edges
+== time: 0.022289 sec
+
+== 400 vertices  2444 edges
+== time: == 400 vertices  2444 edges
+== time: 0.02196690.022403 sec
+
+ sec
+
+== 400 vertices  2444 edges
+== time: 0.02247 sec
+
+== Total ruuning time: 0.0743141 sec
+==================================================================
+
+==Speed up: 2.32155

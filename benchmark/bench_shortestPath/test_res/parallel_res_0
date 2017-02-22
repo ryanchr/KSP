@@ -1,0 +1,40 @@
+1 389
+2 382
+6 382
+0 398
+15 388
+16 395
+1 381
+16 383
+16 398
+3 394
+4 397
+1 399
+5 398
+6 395
+8 399
+10 389
+
+
+Now output the top 30 Shortest paths bwteen nodes: 1-->389(run 1 out of 16)
+The top 30 shortest loopless paths(the acutal number of running iteration is 300):
+
+The 1 result with metrics:   min_cost is 21.2407; sum_distance is 8.5014; sum_hops is 6.
+The 1 result with path nodes: -->1-->18-->35-->52-->32-->372-->389
+
+The 2 result with metrics:   min_cost is 23.1916; sum_distance is 7.21312; sum_hops is 7.
+The 2 result with path nodes: -->1-->0-->340-->357-->356-->355-->372-->389
+
+The 3 result with metrics:   min_cost is 23.4493; sum_distance is 7.41646; sum_hops is 7.
+The 3 result with path nodes: -->1-->341-->340-->357-->356-->355-->372-->389
+
+The 4 result with metrics:   min_cost is 24.0855; sum_distance is 9.58882; sum_hops is 8.
+The 4 result with path nodes: -->1-->18-->35-->36-->53-->52-->32-->372-->389
+
+The 5 result with metrics:   min_cost is 24.0931; sum_distance is 6.36517; sum_hops is 7.
+The 5 result with path nodes: -->1-->0-->340-->357-->356-->373-->372-->389
+
+The 6 result with metrics:   min_cost is 24.095; sum_distance is 6.51208; sum_hops is 8.
+The 6 result with path nodes: -->1-->2-->342-->359-->339-->338-->355-->372-->389
+Warning: the input k= 30 is too large, cannot find the required loopless paths with current constraints!
+the largest possible k is 6
