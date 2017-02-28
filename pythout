@@ -1,0 +1,90 @@
+#!/usr/bin/python 
+#name: Ren Chen 
+#date: Feb/27/2017 
+
+import getopt 
+import sys 
+import copy  
+import matplotlib.pyplot as plt 
+import numpy as np 
+
+def readFiles(): 
+    args = sys.argv[1:] 
+    linkFileName = args[0] 
+    pathFileName = args[1] 
+     
+    with open(linkFileName, 'r') as inputFile: 
+    	inputFile.readline() 
+        in_link = inputFile.read().splitlines() 
+     
+    with open(pathFileName, 'r') as inputFile: 
+        in_agg_path = inputFile.read().splitlines() 
+
+    return in_link, in_agg_path 
+         
+def getEdgesCost(in_link): 
+	edge_cost = {} 
+	for x in in_link: 
+		x_list = [y.strip() for y in x.split(',')] 
+		edge_cost[(x_list[1],x_list[2])] = int(x_list[3]) 
+	return edge_cost 
+
+def getPathCost(edge_cost, path): 
+	l, res = len(path), 0 
+	miss_link = False
+	for i in range(l-1): 
+		if (path[i],path[i+1]) in edge_cost:
+			res += edge_cost[(path[i],path[i+1])]  
+		elif (path[i+1],path[i]) in edge_cost:
+			res += edge_cost[(path[i+1],path[i])]  
+		else:
+			miss_link = True
+		
+	return res, miss_link
+
+def getAggPairsCost(edge_cost, in_agg_path): 
+	agg_pairs_cost = {} 
+	for x in in_agg_path: 
+		x_list = [y.strip() for y in x.split(',')] 
+		if "AggDst" not in x_list[1]: 
+			path = x_list[2].split('|'); path.pop() 
+			pair = (x_list[0],x_list[1]) 
+			cost, miss_link = getPathCost(edge_cost, path)
+			agg_pairs_cost[pair] = agg_pairs_cost.get(pair,[]) + [(cost, miss_link)] 
+	return agg_pairs_cost 
+
+def getCostHist(agg_pairs_cost): 
+	cost_hist = {};  
+	for x in agg_pairs_cost: 
+		for y in agg_pairs_cost[x]: 
+			cost_hist[y] = cost_hist.get(y,0) + 1 
+	##plt.bar(range(len(cost_hist)), cost_hist.values(), align='center') 
+	##plt.xticks(range(len(cost_hist)), cost_hist.keys()) 
+	##plt.show() 
+	return cost_hist
+
+def getPairCostHist(pair_cost): 
+	num_bins = 30 
+	plt.hist(pair_cost, num_bins, color='green') 
+	plt.show() 
+
+def test(): 
+	in_link, in_agg_path = readFiles() 
+	edge_cost = getEdgesCost(in_link) 
+	agg_pairs_cost = getAggPairsCost(edge_cost, in_agg_path) 
+	
+	##calculate number of missing links
+	#pairs = [('0','2'), ('0','334'), ('2','334'), ('2','394'), ('1','2'), ('0','3')]
+	#for x in agg_pairs_cost:
+	#	if all(y[1]==False for y in agg_pairs_cost[x]):
+	#		pairs.append(x)
+	#	if len(pairs) > 5:
+	#		break
+	#print pairs
+	
+	#cost_hist = getCostHist(agg_pairs_cost)
+	#getPairCostHist(cost_hist[('0','1')])
+	getPairCostHist([x[0] for x in agg_pairs_cost[('2','3')]])
+	#getCostHist(agg_cost) 
+ 
+test() 
