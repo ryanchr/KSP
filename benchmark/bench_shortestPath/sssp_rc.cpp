@@ -5,17 +5,23 @@
 // 
 // Usage: ./sssp    --dataset <dataset path> 
 //                  --root <root vertex id> 
-//                  --target <target vertex id>
+//                  --target <targegt vertex id>
+
+
+//added alpha
 
 #include "common.h"
 #include "def.h"
 #include "openG.h"
 #include "omp.h"
+#include <fstream>
 #include <queue>
 #include <cfloat>     
 #include <cassert>
 #include <stack>
 #include <cstdlib>
+#include <unordered_set>
+
 using namespace std;
 
 #ifdef HMC
@@ -39,12 +45,13 @@ typedef pair<size_t,size_t> pair_IntInt; //  //typedef pair<size_t,size_t> pair_
 class vertex_property // new
 {
 public:  // sum_distance(0),sum_hops(0){}
-    vertex_property():min_cost(FLT_MAX),successor(MY_INFINITY),sum_distance(FLT_MAX),sum_hops(MY_INFINITY){}
+    vertex_property():min_cost(FLT_MAX),successor(MY_INFINITY),sum_distance(FLT_MAX),sum_hops(MY_INFINITY),weight(FLT_MAX){}
     float min_cost;                 // for shortest path
     // predecessor;                 // for shortest path successor,
     uint64_t successor;             // for shortest path 
     float sum_distance;             // new
-    uint64_t sum_hops;                           // new 
+    uint64_t sum_hops;              // new 
+	float weight;                   // new
     vector<pair_IntFlt> sorted_edges_of_vertex;  // pair: id (outedge), reduced_cost
 };
 
@@ -73,6 +80,7 @@ void reset_graph(graph_t & g)
         vit->property().successor    = MY_INFINITY;
         vit->property().sum_distance = FLT_MAX;
         vit->property().sum_hops     = MY_INFINITY;
+		vit->property().weight       = FLT_MAX;
         vit->property().sorted_edges_of_vertex.clear();
 
         for (edge_iterator eit = vit->in_edges_begin(); eit != vit->in_edges_end(); eit++)  // new for in edge
@@ -86,7 +94,7 @@ void reset_graph(graph_t & g)
 class vertex_property_tau 
 {
 public:   
-    vertex_property_tau():at_KSPaths(false),predecessor(MY_INFINITY),internel_id_of_g(MY_INFINITY),min_cost(0),sum_distance(0),sum_hops(0){}
+    vertex_property_tau():at_KSPaths(false),predecessor(MY_INFINITY),internel_id_of_g(MY_INFINITY),min_cost(0),sum_distance(0),sum_hops(0),weight(0){}
 
     bool at_KSPaths;             //vector<size_t> KSPaths_record;
     uint64_t predecessor;        // for shortest path, store the id of the graph tau
@@ -95,6 +103,7 @@ public:
     float min_cost;              // for shortest path
     float sum_distance;          // for shortest path
     size_t sum_hops;             // for shortest path
+	float weight;                // for shortest path
 };
 
 
@@ -175,9 +184,11 @@ public:
         } while (curr_id_g != internel_dest);
         cout<<endl;
     }
+#endif
 
 
-vertex_iterator_tau add_partialSP_totau(graph_t& g, size_t src_id_g, size_t dest_id_g, graph_tau& tau, size_t start_id_tau, double max_phy_dist, size_t max_phy_hops)  
+vertex_iterator_tau add_partialSP_totau(graph_t& g, size_t src_id_g, size_t dest_id_g, graph_tau& tau, size_t start_id_tau,   \
+double max_phy_dist, size_t max_phy_hops, size_t alpha)  
 {
     vertex_iterator_tau src_vit_tau;
     vertex_iterator_tau dest_vit_tau;
@@ -202,7 +213,6 @@ vertex_iterator_tau add_partialSP_totau(graph_t& g, size_t src_id_g, size_t dest
         assert(find_result);
 
 
-
         // add point and edge at tau
         dest_vit_tau = tau.add_vertex();
         dest_vit_tau->property().at_KSPaths = false;// 
@@ -211,6 +221,8 @@ vertex_iterator_tau add_partialSP_totau(graph_t& g, size_t src_id_g, size_t dest
         dest_vit_tau->property().min_cost     = src_vit_tau->property().min_cost + eit_g->property().cost; //   
         dest_vit_tau->property().sum_distance = src_vit_tau->property().sum_distance + eit_g->property().phy_dist; //   
         dest_vit_tau->property().sum_hops     = src_vit_tau->property().sum_hops + 1;
+		dest_vit_tau->property().weight       = dest_vit_tau->property().min_cost/alpha + dest_vit_tau->property().sum_hops*alpha;  //weight
+		
 
         //cout<<"the new added node (idx_g,idx_tau) in Tau is ("<<dest_vit_tau->property().internel_id_of_g<<","<<dest_vit_tau->id()<<")"<<endl;
         //cout<<"The new added node (min_cost,sum_distance,sum_hops) in Tau is ("<<dest_vit_tau->property().min_cost<<","<<dest_vit_tau->property().sum_distance<<","<<dest_vit_tau->property().sum_hops<<")";
@@ -250,7 +262,8 @@ bool is_loopless_path(graph_t& g, graph_tau& tau, size_t path_last_id_tau, size_
 }
 
 
-void top_ksp_subFun(bool trueMinCost, size_t trueMinCost_Iter, size_t& curr_kValue, ofstream& myfile, graph_t& g, size_t src, size_t dest, size_t Kvalue, double max_phy_dist, size_t max_phy_hops, size_t min_phy_hops) // src and dest are exID
+void top_ksp_subFun(bool trueMinCost, size_t trueMinCost_Iter, size_t& curr_kValue, ofstream& myfile, graph_t& g,   \
+size_t src, size_t dest, size_t Kvalue, double max_phy_dist, size_t max_phy_hops, size_t min_phy_hops, size_t alpha) // src and dest are exID
 {
 
     uint64_t internel_src  = g.external_to_internel_id(to_string(src)); 
@@ -266,6 +279,8 @@ void top_ksp_subFun(bool trueMinCost, size_t trueMinCost_Iter, size_t& curr_kVal
     dest_vit->property().min_cost = 0;
     dest_vit->property().sum_hops = 0;     // new
     dest_vit->property().sum_distance = 0; // new
+	dest_vit->property().weight = 0;       // new
+	
     PQ.push(pair_IntFlt(internel_dest,0));
 
     // vit->property().successor is used to construct sssp, where the ancestor of all nodes is internel_dest, 
@@ -297,14 +312,18 @@ void top_ksp_subFun(bool trueMinCost, size_t trueMinCost_Iter, size_t& curr_kVal
             else
             {
                 // min_cost  -- sum_hops    exchange
-                int   alt = u_vit->property().sum_hops + 1; // 
-                if (alt < v_vit->property().sum_hops) 
+                unsigned int alt = u_vit->property().sum_hops + 1; // 
+				float alt_cost = u_vit->property().min_cost + eit->property().cost; //  
+				unsigned int weight = alt*alpha + alt_cost/alpha;
+                //if (alt < v_vit->property().sum_hops) 
+				if (weight < v_vit->property().weight) 
                 {
                     v_vit->property().successor = u;  // new, ori is predecessor
                     v_vit->property().sum_hops     = alt; 
                     v_vit->property().min_cost     = u_vit->property().min_cost + eit->property().cost; 
                     v_vit->property().sum_distance = u_vit->property().sum_distance + eit->property().phy_dist; 
-                    PQ.push(pair_IntFlt(v,alt));
+					v_vit->property().weight = weight;
+                    PQ.push(pair_IntFlt(v,weight));
                 }
             }
 
@@ -327,7 +346,8 @@ void top_ksp_subFun(bool trueMinCost, size_t trueMinCost_Iter, size_t& curr_kVal
             }
             else
             {
-                reduced_cost = v_vit->property().sum_hops - u_vit->property().sum_hops + 1;  // min_cost  -- sum_hops    exchange
+                //reduced_cost = v_vit->property().sum_hops - u_vit->property().sum_hops + 1;  // min_cost  -- sum_hops    exchange
+				reduced_cost = v_vit->property().weight - u_vit->property().weight + eit->property().cost/alpha + alpha; 
             }
             eit->property().reduced_cost = reduced_cost;
             u_vit->property().sorted_edges_of_vertex.push_back(pair_IntFlt(v,reduced_cost));     // pair: id (outedge), reduced_cost
@@ -350,6 +370,8 @@ void top_ksp_subFun(bool trueMinCost, size_t trueMinCost_Iter, size_t& curr_kVal
     src_vit_tau->property().min_cost = 0; 
     src_vit_tau->property().sum_distance = 0; 
     src_vit_tau->property().sum_hops = 0;
+	src_vit_tau->property().weight = 0;
+	
     // construct the first shortest path constructed in tau
     uint64_t internel_src_tau = src_vit_tau->id();
     src_vit_tau->property().min_cost += g.find_vertex( src_vit_tau->property().internel_id_of_g )->property().min_cost;
@@ -364,7 +386,8 @@ void top_ksp_subFun(bool trueMinCost, size_t trueMinCost_Iter, size_t& curr_kVal
     }
     else
     {
-        max_iter = Kvalue*100000;;
+        //max_iter = Kvalue*100000;;
+		max_iter = trueMinCost_Iter;
     }
     size_t k = curr_kValue;
     size_t iter = 0; 
@@ -380,7 +403,7 @@ void top_ksp_subFun(bool trueMinCost, size_t trueMinCost_Iter, size_t& curr_kVal
         uint64_t  cur_Gnode_atTau = tau.find_vertex(candi_last_id)->property().internel_id_of_g; 
         if (cur_Gnode_atTau != internel_dest)
         {
-            vertex_iterator_tau dest_vit_tau = add_partialSP_totau(g, cur_Gnode_atTau, internel_dest, tau, candi_last_id, max_phy_dist, max_phy_hops);
+            vertex_iterator_tau dest_vit_tau = add_partialSP_totau(g, cur_Gnode_atTau, internel_dest, tau, candi_last_id, max_phy_dist, max_phy_hops, alpha);
             candi_last_id = dest_vit_tau->id();
         }
         
@@ -480,6 +503,7 @@ void top_ksp_subFun(bool trueMinCost, size_t trueMinCost_Iter, size_t& curr_kVal
                     dest_vit_tau->property().min_cost     = pk_top_vit->property().min_cost + eit_g->property().cost; //   
                     dest_vit_tau->property().sum_distance = pk_top_vit->property().sum_distance + eit_g->property().phy_dist; //   
                     dest_vit_tau->property().sum_hops     = pk_top_vit->property().sum_hops + 1;
+					dest_vit_tau->property().weight     = dest_vit_tau->property().min_cost/alpha + dest_vit_tau->property().sum_hops*alpha;
 
                     uint64_t tau_tmp_id = dest_vit_tau->id();  //  
                     edge_iterator_tau eit_tau;
@@ -502,72 +526,4 @@ void top_ksp_subFun(bool trueMinCost, size_t trueMinCost_Iter, size_t& curr_kVal
 
     } //while (k<Kvalue && !PQ_KSP_candidates_tau.empty() && iter<max_iter)
     curr_kValue = k;
-
-    cout<<"Output: trueMinCost is "<< trueMinCost <<endl;;
-    cout<<"--the running iteration (do PQ pop) is "<<iter<<endl;
-    cout<<"--the found final path number is "<<KSPaths_lastID_tau.size()<<endl;
-
-    if (KSPaths_lastID_tau.size()==0)
-    {
-        cout<<"cannot find any path, maybe we have too much constraints!"<<endl;
-        assert(false);
-    }
-
-    for (size_t idx = 0; idx < KSPaths_lastID_tau.size(); ++idx)
-    {
-        size_t tmp_k = idx + 1;
-        uint64_t curr_id_tau = KSPaths_lastID_tau[idx];
-
-        vertex_iterator_tau vit_tau = tau.find_vertex(curr_id_tau);
-
-        uint64_t curr_id_g = vit_tau->property().internel_id_of_g; 
-        uint64_t curr_exID = atoi(g.internal_to_externel_id(curr_id_g).c_str());
-        stack<uint64_t> curr_path;
-        curr_path.push(curr_exID);
-        do
-        {
-            curr_id_tau = vit_tau->property().predecessor;
-            vit_tau = tau.find_vertex(curr_id_tau);
-            curr_id_g = vit_tau->property().internel_id_of_g; 
-            curr_exID = atoi(g.internal_to_externel_id(curr_id_g).c_str());
-            curr_path.push(curr_exID);
-        } while (curr_id_tau != internel_src_tau);
-
-        //cout<<"The "<<tmp_k<<" result with path nodes: ";
-        
-        myfile<<" AggSrc,AggDst,Path"<<endl;
-        myfile<<"0,2,";
-        while (!curr_path.empty())
-        {
-            int tmp_node = curr_path.top();
-            myfile<< tmp_node << "|";
-            //cout<<"-->"<<tmp_node;
-            curr_path.pop();
-        }
-        myfile<<",\n";
-
-        if ( !is_loopless_path(g, tau, KSPaths_lastID_tau[idx], internel_src_tau) )
-        {
-            cout<<endl<<"wrong, this path has loop"<<endl;
-            assert(false);
-        }
-        //cout<<endl;
-    }
-    
-
-    /*
-    if (Kvalue!=KSPaths_lastID_tau.size())
-    {
-        cout<<"Warning: the input k= "<<Kvalue<<" is too large, cannot find the required loopless paths with current constraints!"<<endl;
-        cout<<"the largest possible k is "<<KSPaths_lastID_tau.size()<<endl;
-    }
-    */
-    //#endif
-
-    //cout<<"(the acutal number of running iteration is "<<iter<<"):"<<endl;
-
-}
- 
-  
-
  
