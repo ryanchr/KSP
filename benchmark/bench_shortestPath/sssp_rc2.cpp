@@ -1,5 +1,75 @@
 
-void top_ksp(graph_t& g, size_t src, size_t dest, size_t Kvalue, double max_phy_dist, size_t max_phy_hops, size_t min_phy_hops, gBenchPerf_event & perf, int perf_group, ofstream myfile)
+    cout<<"Output: trueMinCost is "<< trueMinCost <<endl;;
+    cout<<"--the running iteration (do PQ pop) is "<<iter<<endl;
+    cout<<"--the found final path number is "<<KSPaths_lastID_tau.size()<<endl;
+
+    /*if (KSPaths_lastID_tau.size()==0)
+    {
+        cout<<"cannot find any path, maybe we have too much constraints!"<<endl;
+        assert(false);
+    
+    }*/
+
+    for (size_t idx = 0; idx < KSPaths_lastID_tau.size(); ++idx)
+    {
+        //size_t tmp_k = idx + 1;
+        uint64_t curr_id_tau = KSPaths_lastID_tau[idx];
+
+        vertex_iterator_tau vit_tau = tau.find_vertex(curr_id_tau);
+
+        uint64_t curr_id_g = vit_tau->property().internel_id_of_g; 
+        uint64_t curr_exID = atoi(g.internal_to_externel_id(curr_id_g).c_str());
+        stack<uint64_t> curr_path;
+        curr_path.push(curr_exID);
+        do
+        {
+            curr_id_tau = vit_tau->property().predecessor;
+            vit_tau = tau.find_vertex(curr_id_tau);
+            curr_id_g = vit_tau->property().internel_id_of_g; 
+            curr_exID = atoi(g.internal_to_externel_id(curr_id_g).c_str());
+            curr_path.push(curr_exID);
+        } while (curr_id_tau != internel_src_tau);
+
+        //cout<<"The "<<tmp_k<<" result with path nodes: ";
+        
+        myfile<<" AggSrc,AggDst,Path"<<endl;
+        //myfile<<"0,2,";
+		myfile<<src<<","<<dest<<",";
+		
+        while (!curr_path.empty())
+        {
+            int tmp_node = curr_path.top();
+            myfile<< tmp_node << "|";
+            //cout<<"-->"<<tmp_node;
+            curr_path.pop();
+        }
+        myfile<<",\n";
+
+        if ( !is_loopless_path(g, tau, KSPaths_lastID_tau[idx], internel_src_tau) )
+        {
+            cout<<endl<<"wrong, this path has loop"<<endl;
+            assert(false);
+        }
+        //cout<<endl;
+    }
+
+    /*
+    if (Kvalue!=KSPaths_lastID_tau.size())
+    {
+        cout<<"Warning: the input k= "<<Kvalue<<" is too large, cannot find the required loopless paths with current constraints!"<<endl;
+        cout<<"the largest possible k is "<<KSPaths_lastID_tau.size()<<endl;
+    }
+    */
+    //#endif
+
+    //cout<<"(the acutal number of running iteration is "<<iter<<"):"<<endl;
+
+}
+ 
+ 
+void top_ksp(size_t trueMinCost_Iter, ofstream& myfile, graph_t& g, size_t src, size_t dest,  \
+size_t Kvalue, double max_phy_dist, size_t max_phy_hops, size_t min_phy_hops, 
+gBenchPerf_event & perf, int perf_group )
 {
 
     perf.open(perf_group);
@@ -8,22 +78,21 @@ void top_ksp(graph_t& g, size_t src, size_t dest, size_t Kvalue, double max_phy_
     SIM_BEGIN(true);  
 #endif
 
-
-    //ofstream myfile ("outputSingleLayer/combineMethods_single_0_2.csv"); // update the above number
-    size_t trueMinCost_Iter = 5*1e6; // 1e6   (0-334:  1e7->152s)
-
     bool trueMinCost        = true;
     size_t curr_kValue      = 0;
 
-
     // first operate trueMinCost with trueMinCost_Iter iterations
-    top_ksp_subFun(trueMinCost, trueMinCost_Iter, curr_kValue, myfile, g, src, dest, Kvalue, max_phy_dist, max_phy_hops, min_phy_hops);
+    top_ksp_subFun(trueMinCost, trueMinCost_Iter, curr_kValue, myfile, g, src, dest, Kvalue, max_phy_dist, max_phy_hops, min_phy_hops, 1);
 
     // second, find the remaining (Kvalue - curr_kValue) paths by using reduced hops
-    reset_graph(g);
-    trueMinCost = false;
-    top_ksp_subFun(trueMinCost, trueMinCost_Iter, curr_kValue, myfile, g, src, dest, Kvalue, max_phy_dist, max_phy_hops, min_phy_hops);
-
+	int alpha = 1, rate = 128;
+	while (curr_kValue < Kvalue)
+    {
+		reset_graph(g);
+		trueMinCost = false;
+		alpha *= rate;
+		top_ksp_subFun(trueMinCost, trueMinCost_Iter, curr_kValue, myfile, g, src, dest, Kvalue, max_phy_dist, max_phy_hops, min_phy_hops, alpha);
+	}
     //myfile.close();
 
 #ifdef SIM
@@ -49,21 +118,57 @@ void arg_init(argument_parser & arg)
 //==============================================================//
 
 
+//Load AGG_pairs
+vector<vector<int> > loadAggPairs(void)
+{
+    vector<vector<int> > res;
+    
+	int raw[24][3] = {{0,  1,  13036},
+	 {0	 , 334	 , 38338 },
+     {0,  278,  21768    },
+     {1	 , 278	 , 17754 },
+      {0	 , 1	 , 13100 },
+      {0	 , 2	 , 25074 },
+      {0	 , 3	 , 11884 },
+      {0	 , 394	 , 38630 },
+      {0	 , 557	 , 38870 },
+      {1	 , 2	 , 22088 },
+      {1	 , 3	 , 16625 },
+      {1	 , 334	 , 40614 },
+      {1	 , 394	 , 40895 },
+      {1	 , 557	 , 40912 },
+      {2	 , 3	 , 14612 },
+      {2	 , 334	 , 37503 },
+      {2	 , 394	 , 37617 },
+      {2	 , 557	 , 37859 },
+      {334	 , 394	 , 26073 },
+      {334	 , 557	 , 25824 },
+      {394	 , 557	 , 25969 },
+      {3	 , 334	 , 38859 },
+      {3	 , 394	 , 39086 },
+      {3	 , 557	 , 39350 }};
+	
+	for (int i=0; i<24; i++)
+	{
+		vector<int> pair;
+		for (int j=0; j<3; j++)
+			pair.push_back(raw[i][j]);
+		res.push_back(pair);
+	}
+	
+    return res;
+}
+
 //Initialize a graph
 void graphInit(graph_t &graph, string vfile, string efile, size_t src, size_t dest, string separator)
 {
     cout<<"loading data... \n";
     double t1 = timer::get_usec();
-    
-    #ifndef EDGES_ONLY    
-        if (graph.load_csv_vertices(vfile, true, separator, 0) == -1)
-            return;
-        if (graph.load_csv_edges(efile, true, separator, 0, 1) == -1) 
-            return;
-    #else
-        if (graph.load_csv_edges(efile, true, separator, 0, 1) == -1)
-            return;
-    #endif
+	
+    if (graph.load_csv_vertices(vfile, true, ",", 0) == -1)
+        return;
+    if (graph.load_csv_edges(efile, true, ",", 1, 2,false, NULL,3,-1) == -1) 
+        return;
 
     size_t vertex_num = graph.num_vertices();
     size_t edge_num = graph.num_edges();
@@ -115,53 +220,57 @@ vector<vector<int> > genTests(int total_vertex, int AGG_pair_num)
 }
 
 
-double serialTest(string vfile, string efile, size_t src, size_t dest, string separator, int AGG_pair_num, int Kvalue, int max_phy_dist, int max_phy_hops, size_t min_phy_hops,  vector<vector<int> >tests, gBenchPerf_event perf)
+double serialTest(size_t true_min_iter, string vfile, string efile, size_t src, size_t dest, string separator  \
+, int max_phy_dist, int max_phy_hops, size_t min_phy_hops,  vector<vector<int> >tests, gBenchPerf_event perf)
 {
     graph_t *graph;  
     double t1 = timer::get_usec();
-    int p_src, p_dest;
+    int p_src, p_dest, k_val;
 
-    for (int i=0; i<AGG_pair_num; i++)
+	ofstream res_fstream;
+	res_fstream.open("./outputSingleLayer/combineMethods.csv", ofstream::trunc);
+	 
+    for (unsigned int i=0; i<tests.size(); i++)
     {
         graph = new graph_t();
         graphInit(*graph, vfile, efile, src, dest, separator);
         p_src = tests[i][0]; 
         p_dest = tests[i][1];
-        ofstream res_fstream;
+		k_val = tests[i][2];
+        
 		//res_fstream.open("./test_res/parallel_res_"+to_string(idx), ofstream::trunc);
-        res_fstream.open("outputSingleLayer/combineMethods_single_0_2.csv");
-		
-        top_ksp(*graph, p_src , p_dest, Kvalue, max_phy_dist, max_phy_hops, min_phy_hops, perf, 0, res_fstream);  
+        top_ksp(true_min_iter, res_fstream, *graph, p_src , p_dest, k_val, max_phy_dist, max_phy_hops, min_phy_hops, perf, i);  
         delete graph;
-
-        res_fstream.close();
     }
 
+	res_fstream.close();
     double t2 = timer::get_usec();
     return t2-t1;
 }
 
 
 
-double parallelTest(string vfile, string efile, size_t src, size_t dest, string separator, int AGG_pair_num, int Kvalue, int max_phy_dist, int max_phy_hops, size_t min_phy_hops, vector<vector<int> >tests, gBenchPerf_event perf)
+double parallelTest(size_t true_min_iter, string vfile, string efile, size_t src, size_t dest, string separator,    \
+int max_phy_dist, int max_phy_hops, size_t min_phy_hops, vector<vector<int> >tests, gBenchPerf_event perf)
 {
     graph_t *graph;     
     double t1 = timer::get_usec();
 
-    omp_set_num_threads(AGG_pair_num);
+    omp_set_num_threads(tests.size());
     #pragma omp parallel private(graph)
     {
         int idx = omp_get_thread_num();
         int p_src = tests[idx][0];
         int p_dest = tests[idx][1];
+		int k_val = tests[idx][2];
+		
         ofstream res_fstream;
-		res_fstream.open("outputSingleLayer/combineMethods_single_0_2.csv");
+		res_fstream.open("outputSingleLayer/combineMethods_parallel"+to_string(idx)+".csv");
 
         graph = new graph_t();
         graphInit(*graph, vfile, efile, src, dest, separator);
-		res_fstream.open("./test_res/parallel_res_"+to_string(idx), ofstream::trunc);
 
-        top_ksp(*graph, p_src , p_dest, Kvalue, max_phy_dist, max_phy_hops, min_phy_hops, perf, 0, res_fstream);  
+        top_ksp(true_min_iter, res_fstream, *graph, p_src , p_dest, k_val, max_phy_dist, max_phy_hops, min_phy_hops, perf, 0);  
         delete graph;
 
         res_fstream.close();
@@ -186,9 +295,10 @@ int main(int argc, char * argv[])
         return -1;
     }
     string path, separator;
-    size_t src, dest, Kvalue, max_phy_hops, threadnum, AGG_pair_num, total_vertex;
+    size_t src, dest, Kvalue, max_phy_hops, min_phy_hops;
+	size_t threadnum, AGG_pair_num;
     double max_phy_dist;
-    string vfile, efile;
+    string vfile, efile, aggfile;
 
     arg.get_value("dataset",path);
     arg.get_value("separator",separator);
@@ -201,32 +311,37 @@ int main(int argc, char * argv[])
     arg.get_value("threadnum",threadnum);
 
     
-    AGG_pair_num = 24;   // 5    50    100 
+    AGG_pair_num = 2;   // 5    50    100 
     Kvalue = 30;         // 5   50    500  
     max_phy_dist = FLT_MAX;
     max_phy_hops = 9;
 	min_phy_hops = 4;
-	
-    total_vertex = 400;  // 400   4000   10000 
-    vfile = path + "/vertex400.csv";  // vertex400   vertex4000    vertex10000
-    efile = path + "/vertex400dim8_edge.csv";       
+	size_t true_min_iter =  1e6; //1e5; //5*1e6; // 1e6   (0-334:  1e7->152s)
+	 
+    //int total_vertex = 400;  // 400   4000   10000 
+    vfile = path + "/Node.csv";  // vertex400   vertex4000    vertex10000
+    efile = path + "/LinkUndirected.csv";       
+	aggfile = path + "/AggPair.csv";
 	
 	
     cout<<"...\n";
     gBenchPerf_multi perf_multi(threadnum, perf);
 
     //Generate tests
-    vector<vector<int> > tests = genTests(total_vertex, AGG_pair_num);
+    //vector<vector<int> > tests = genTests(total_vertex, AGG_pair_num);
+	vector<vector<int> > tests = loadAggPairs();
+	AGG_pair_num = tests.size();
+	
     double s_time, p_time;
 
     cout<<"AGG_pair_num is "<< AGG_pair_num <<"; Kvalue is "<<Kvalue<<endl;
     cout<<"max_phy_dist is " << max_phy_dist <<endl;
-    cout<<"max_phy_hops is " << max_phy_hops <<endl<<endl;
-	cout<<"min_phy_hops is " << min_phy_hops <<endl;
+    cout<<"max_phy_hops is " << max_phy_hops <<endl;
+	cout<<"min_phy_hops is " << min_phy_hops <<endl<<endl;
     
     //Serial run
     cout<<"Start running serial test"<<endl;
-    s_time = serialTest(vfile, efile, src, dest, separator, AGG_pair_num, Kvalue, max_phy_dist, max_phy_hops, tests, perf);
+    s_time = serialTest(true_min_iter, vfile, efile, src, dest, separator, max_phy_dist, max_phy_hops, min_phy_hops, tests, perf);
 
     #ifndef ENABLE_VERIFY
         cout<<"== Total ruuning time: "<<s_time<<" sec\n";
@@ -235,7 +350,7 @@ int main(int argc, char * argv[])
 
     //Parallel run
     cout<<"Start running openMP test"<<endl;
-    p_time = parallelTest(vfile, efile, src, dest, separator, AGG_pair_num, Kvalue, max_phy_dist, max_phy_hops, tests, perf);
+    p_time = parallelTest(true_min_iter, vfile, efile, src, dest, separator, max_phy_dist, max_phy_hops, min_phy_hops, tests, perf);
     
     #ifndef ENABLE_VERIFY
         cout<<"== Total ruuning time: "<<p_time<<" sec\n";
@@ -260,4 +375,3 @@ int main(int argc, char * argv[])
     cout<<"==Speed up: "<<s_time/p_time<<endl;
     return 0;
 }  // end main
-
