@@ -1,74 +1,95 @@
 //====== Graph Benchmark Suites ======//
 //========== Shortest Path ===========//
 // 
-// Single-source shortest path
+// Single source-dest pair shortest path with multi-constraints
 // 
 // Usage: ./sssp    --dataset <dataset path> 
 //                  --root <root vertex id> 
-//                  --target <target vertex id>
+//                  --target <targegt vertex id>
 
 #include "common.h"
 #include "def.h"
 #include "openG.h"
 #include "omp.h"
+#include <fstream>
 #include <queue>
 #include <cfloat>     
 #include <cassert>
 #include <stack>
 #include <cstdlib>
-using namespace std;
+#include <unordered_set>
 
-//#define TOPKSP_PRINTOUT
-//#define VERIFY_RESULTS
-#define MY_INFINITY  0xfff0  // for unsigned i.e., 65520
-#define ENABLE_OUTPUT       //new
+using namespace std;
 
 #ifdef HMC
 #include "HMC.h"
 #endif
+
 #ifdef SIM
 #include "SIM.h"
 #endif
+
+//#define VERIFY_RESULTS     // if compare serial results with parallel results
+#define MY_INFINITY  0xfff0  // for unsigned i.e., 65520
+#define TOPKSP_DEBUG
 
 size_t beginiter = 0;
 size_t enditer = 0;
 
 typedef pair<size_t,float> pair_IntFlt; //  //typedef pair<size_t,size_t> pair_IntFlt; //
 typedef pair<float,size_t> pair_FltInt; //  //typedef pair<size_t,size_t> pair_IntFlt; //
+typedef pair<size_t,size_t> pair_IntInt; //  //typedef pair<size_t,size_t> pair_IntFlt; //
 
 
-class vertex_property   // new
+class vertex_property // new
 {
-public:
-    vertex_property():min_cost(FLT_MAX),successor(MY_INFINITY){}
-    float min_cost;     // for shortest path
-    uint64_t successor; // for shortest path 
+public:  // sum_distance(0),sum_hops(0){}
+    vertex_property():min_cost(FLT_MAX),successor(MY_INFINITY),sum_distance(FLT_MAX),sum_hops(MY_INFINITY)  \
+    ,weight(FLT_MAX),occurrence(0),visited(0){}
+    float min_cost;                 // for shortest path
+    // predecessor;                 // for shortest path successor,
+    uint64_t successor;             // for shortest path 
+    float sum_distance;             // new
+    uint64_t sum_hops;              // new 
+	float weight;                   // new
+	uint64_t occurrence;            // new
+    bool visited;                   // new
+	
     vector<pair_IntFlt> sorted_edges_of_vertex;  // pair: id (outedge), reduced_cost
 };
-
 
 class edge_property // new
 {
 public:
-    edge_property():cost(FLT_MAX),phy_dist(FLT_MAX),reduced_cost(FLT_MAX){} // new:  Note: 
+    edge_property():cost(FLT_MAX),phy_dist(FLT_MAX),max_bw(FLT_MAX),up_bw_residue(FLT_MAX),
+                    down_bw_residue(FLT_MAX),reduced_cost(FLT_MAX){} // new:  Note: 
+
     float cost; // note: here cost means cost
     float phy_dist; //new
-    float reduced_cost; //  
+    float max_bw;
+    float up_bw_residue;
+    float down_bw_residue;
+    float reduced_cost; 
 };
-
 
 typedef openG::extGraph<vertex_property, edge_property> graph_t;
 typedef graph_t::vertex_iterator    vertex_iterator;
 typedef graph_t::edge_iterator      edge_iterator;
 
 
-void reset_graph(graph_t & g)
+void reset_graph(graph_t & g, bool reset_occurrence)
 {
     vertex_iterator vit;
     for (vit=g.vertices_begin(); vit!=g.vertices_end(); vit++)
     {
-        vit->property().successor = MY_INFINITY;
-        vit->property().min_cost = FLT_MAX;
+        vit->property().min_cost     = FLT_MAX;
+        vit->property().successor    = MY_INFINITY;
+        vit->property().sum_distance = FLT_MAX;
+        vit->property().sum_hops     = MY_INFINITY;
+		vit->property().weight       = FLT_MAX;
+        vit->property().visited      = 0;
+        if (reset_occurrence)
+		  vit->property().occurrence   = 0;
         vit->property().sorted_edges_of_vertex.clear();
 
         for (edge_iterator eit = vit->in_edges_begin(); eit != vit->in_edges_end(); eit++)  // new for in edge
@@ -77,33 +98,6 @@ void reset_graph(graph_t & g)
         }
     }
 }
-
-
-class vertex_property_tau 
-{
-public:   
-    vertex_property_tau():at_KSPaths(false),predecessor(MY_INFINITY),internal_id_of_g(MY_INFINITY),min_cost(0),sum_distance(0),sum_hops(0){}
-
-    bool at_KSPaths;           //vector<size_t> KSPaths_record;
-    uint64_t predecessor;      // for shortest path, store the id of the graph tau
-    uint64_t internal_id_of_g; // internal id of orginal graph g
-
-    //for shortest path
-    float min_cost;            
-    float sum_distance;        
-    size_t sum_hops;           
-};
-
-
-class edge_property_tau // new
-{
-public:
-    edge_property_tau(){} //edge_property_tau():cost(FLT_MAX),phy_dist(FLT_MAX),reduced_cost(FLT_MAX){} 
-};
-
-typedef openG::extGraph<vertex_property_tau, edge_property_tau> graph_tau;
-typedef graph_tau::vertex_iterator    vertex_iterator_tau;
-typedef graph_tau::edge_iterator      edge_iterator_tau;
 
 class min_comp_IntFlt
 {
@@ -123,6 +117,7 @@ public:
     }
 };
 
+
 #ifdef TOPKSP_DEBUG
     template <typename T>
     void displayVectorOrListContents(const T& input)
@@ -133,7 +128,6 @@ public:
         }
         cout << endl;
     }
-
     template <typename T>
     void displayVectorOrListOfPairContents(const T& input)  
     {
@@ -144,11 +138,10 @@ public:
         cout << endl;
     }
 
-
-    void output_shorest_path(graph_t& g, size_t src, size_t dest) //for test, src and dest is exID, dest is the input dest of top_ksp func.
+    void output_shorest_path(graph_t& g, size_t src, size_t dest) //for test, src and dest is exID, dest is the input dest of spmc func.
     {
         cout<<"the shortest path is: ";
-        uint64_t internal_dest = g.external_to_internel_id(to_string(dest)); 
+        uint64_t internel_dest = g.external_to_internel_id(to_string(dest)); 
         uint64_t curr_id_g = g.external_to_internel_id(to_string(src)); 
 
         uint64_t curr_exID = src;
@@ -158,456 +151,392 @@ public:
             vertex_iterator vit = g.find_vertex(curr_id_g);   
             curr_id_g  = vit->property().successor; 
 
-            if (curr_exID==289)
-            {
-                cout<<"curr_id_g="<<curr_id_g<<endl;
-            }
-
             curr_exID = atoi(g.internal_to_externel_id(curr_id_g).c_str());
             cout<<"-->"<<curr_exID;
-        } while (curr_id_g != internal_dest);
+            //cout<<"-->"<<curr_exID<<endl;
+        } while (curr_id_g != internel_dest);
         cout<<endl;
     }
-  #endif
 
-
-vertex_iterator_tau add_partialSP_totau(graph_t& g, size_t src_id_g, size_t dest_id_g, graph_tau& tau, size_t start_id_tau)  
-{
-    vertex_iterator_tau src_vit_tau;
-    vertex_iterator_tau dest_vit_tau;
-    edge_iterator_tau eit_tau;
-    vertex_iterator src_vit_g;
-    vertex_iterator dest_vit_g;
-    edge_iterator eit_g;
-
-    src_vit_tau = tau.find_vertex(start_id_tau);  
-    assert(src_vit_tau->property().internal_id_of_g == src_id_g); // this is needed for the following code to work
-
-    uint64_t tau_tmp_id = start_id_tau;
-    src_vit_g = g.find_vertex(src_id_g);  
-    while (src_vit_g->id() != dest_id_g) // note: dest_id_g should be the internal_dest
+    void printVec(vector<size_t> in)
     {
-        dest_vit_g = g.find_vertex( src_vit_g->property().successor ); // new, ori is  predecessor
-        //cout << "src_vit_g->id()= "  << src_vit_g->id()  << endl;
-        //cout << "dest_vit_g->id()= " << dest_vit_g->id() << endl;
-        bool find_result = g.find_out_edge_2id(src_vit_g->id(), dest_vit_g->id(), eit_g); // for eit_g->property().cost and eit_g->property().phy_dist
-        assert(find_result);
-
-        // add point and edge at tau
-        dest_vit_tau = tau.add_vertex();
-        dest_vit_tau->property().at_KSPaths = false;// 
-        dest_vit_tau->property().predecessor = tau_tmp_id; // 
-        dest_vit_tau->property().internal_id_of_g = dest_vit_g->id();   
-        dest_vit_tau->property().min_cost     = src_vit_tau->property().min_cost + eit_g->property().cost; //   
-        dest_vit_tau->property().sum_distance = src_vit_tau->property().sum_distance + eit_g->property().phy_dist; //   
-        dest_vit_tau->property().sum_hops     = src_vit_tau->property().sum_hops + 1;
-
-        //cout<<"the new added node (idx_g,idx_tau) in Tau is ("<<dest_vit_tau->property().internal_id_of_g<<","<<dest_vit_tau->id()<<")"<<endl;
-        //cout<<"The new added node (min_cost,sum_distance,sum_hops) in Tau is ("<<dest_vit_tau->property().min_cost<<","<<dest_vit_tau->property().sum_distance<<","<<dest_vit_tau->property().sum_hops<<")";
-        //cout<<endl;
-
-        tau.add_edge(src_vit_tau->id(),dest_vit_tau->id(),eit_tau); // note: put all info at vertex, see dest_vit_tau
-
-        // for next iteration use
-        tau_tmp_id = dest_vit_tau->id();  
-        src_vit_g  = dest_vit_g; 
-        src_vit_tau  = dest_vit_tau;  
+        for (auto iter = in.begin(); iter != in.end(); iter++)
+            cout<<*iter<<",";
+        cout<<endl;
     }
-    return dest_vit_tau;
-}
-
-bool is_loopless_path(graph_t& g, graph_tau& tau, size_t path_last_id_tau, size_t path_first_id_tau)//based on sorted vector
-{
-    size_t tmpId = path_last_id_tau;    
-    vertex_iterator_tau vit_tau_tmp = tau.find_vertex(tmpId); 
-
-    vector<size_t> path_id_set_g;  
-    path_id_set_g.push_back( vit_tau_tmp->property().internal_id_of_g );
-    while (tmpId != path_first_id_tau)
-    {
-        tmpId = vit_tau_tmp->property().predecessor;  
-        vit_tau_tmp = tau.find_vertex(tmpId);
-        path_id_set_g.push_back( vit_tau_tmp->property().internal_id_of_g );
-    }
-    sort(path_id_set_g.begin(), path_id_set_g.end());
-    return adjacent_find(path_id_set_g.begin(), path_id_set_g.end()) == path_id_set_g.end();
-}
-
-
-void top_ksp(graph_t& g, size_t src, size_t dest, size_t Kvalue, double max_phy_dist, size_t max_phy_hops, gBenchPerf_event & perf, int perf_group, ofstream &res_fstream) // src and dest are exID
-{
-    perf.open(perf_group);
-    perf.start(perf_group);
-#ifdef SIM
-    SIM_BEGIN(true);
 #endif
-    uint64_t internal_src  = g.external_to_internel_id(to_string(src)); 
-    uint64_t internal_dest = g.external_to_internel_id(to_string(dest)); 
 
-    //// Now all processing is based on internal id first.
-    //// (1) sssp sub-procedure  -->for vertex: update  v_vit->property().min_cost and v_vit->property().predecessor 
+
+//calculate the shortest path of any node to internel_dest
+void sssp(graph_t& g,  size_t src, size_t dest, size_t alpha)
+{
+    //uint64_t internel_src  = g.external_to_internel_id(to_string(src)); 
+    uint64_t internel_dest = g.external_to_internel_id(to_string(dest)); 
     priority_queue<pair_IntFlt, vector<pair_IntFlt>, min_comp_IntFlt> PQ;
 
-    vertex_iterator dest_vit = g.find_vertex(internal_dest);  // note: here the source of sssp is internal_dest, 
+    //// Now all processing is based on internel id first.
+    //// (1) sssp sub-procedure  -->for vertex: update  v_vit->property().min_cost and v_vit->property().successor 
+    vertex_iterator dest_vit = g.find_vertex(internel_dest);  // note: here the source of sssp is internel_dest, 
     dest_vit->property().min_cost = 0;
-    PQ.push(pair_IntFlt(internal_dest,0));
+    dest_vit->property().sum_hops = 0;     // new
+    dest_vit->property().sum_distance = 0; // new
+	dest_vit->property().weight = 0;       // new
+    dest_vit->property().visited = 0;
+	//dest_vit->property().occurrence = dest_vit->property().occurrence;       // new
+	
+    PQ.push(pair_IntFlt(internel_dest,0));
 
-    // vit->property().predecessor is used to construct sssp, where the ancestor of all nodes is internal_dest, 
-    // by using vit->property().predecessor recursively, we can find the shortest path of any node to internal_dest
-    while (!PQ.empty()) 
+    // vit->property().successor is used to construct sssp, where the ancestor of all nodes is internel_dest, 
+    // by using vit->property().successor recursively, we can find the shortest path of any node to internel_dest
+    while (!PQ.empty())   // sum_distance  sum_hops
     {
         size_t u = PQ.top().first; //id
         PQ.pop();
 
         vertex_iterator u_vit = g.find_vertex(u);
+        //in_edges: u is the source, v is the destination
         for (edge_iterator eit = u_vit->in_edges_begin(); eit != u_vit->in_edges_end(); eit++)  // new for in edge
         {
             size_t v = eit->target();
+
+            //if (u == 15 && src == 0 && dest == 18)
+            //    cout<<"Out edges of node 15: "<<v<<",";
+
             vertex_iterator v_vit = g.find_vertex(v);
-            // for every vertex, try relaxing the path
-            float alt = u_vit->property().min_cost + eit->property().cost; // 
-            if (alt < v_vit->property().min_cost) 
+
+            // for every  vertex, try relaxing the path
+            // min_cost  -- sum_hops    exchange
+            unsigned int alt = u_vit->property().sum_hops + 1; // 
+			//float alt_cost = u_vit->property().min_cost + eit->property().cost; //  
+            float alt_weight = u_vit->property().weight + eit->property().cost;
+
+			unsigned int occur = v_vit->property().occurrence;
+			
+			unsigned int alpha_occur = (occur > 7000) ? int(alpha*10) : int(alpha*10);
+			unsigned int weight = alt_weight + occur*alpha_occur;
+			
+            //if (alt < v_vit->property().sum_hops) 
+			if (weight < v_vit->property().weight) 
             {
-                v_vit->property().min_cost = alt; 
-                v_vit->property().successor = u;    // new, ori is predecessor
-                PQ.push(pair_IntFlt(v,alt));
+                v_vit->property().successor = u;  // new, ori is predecessor
+                v_vit->property().sum_hops     = alt; 
+                v_vit->property().min_cost     = u_vit->property().min_cost + eit->property().cost; 
+                v_vit->property().sum_distance = u_vit->property().sum_distance + eit->property().phy_dist; 
+				v_vit->property().weight = weight;
+				
+                PQ.push(pair_IntFlt(v,weight));
             }
         }
     }
-    
-    ////(2) reduced_cost computing procedure  -->for edge: update eit->property().reduced_cost
-    ////(3) rearrange the arcs
+}
+
+
+////(2) reduced_cost computing procedure  -->for edge: update eit->property().reduced_cost
+////(3) rearrange the arcs
+void updateReducedCost(graph_t& g, size_t alpha)
+{
     for (vertex_iterator u_vit=g.vertices_begin(); u_vit!=g.vertices_end(); u_vit++) // for each vertex u
     {
         for (edge_iterator eit = u_vit->edges_begin(); eit != u_vit->edges_end(); eit++) // for each outedge u->v from vertex u
         {
             size_t v = eit->target();
             vertex_iterator v_vit = g.find_vertex(v);
-            float reduced_cost = v_vit->property().min_cost - u_vit->property().min_cost + eit->property().cost;
-            eit->property().reduced_cost = reduced_cost;
-            u_vit->property().sorted_edges_of_vertex.push_back(pair_IntFlt(v,reduced_cost));     // pair: id (outedge), reduced_cost
+           
+            //reduced_cost = v_vit->property().sum_hops - u_vit->property().sum_hops + 1;  // min_cost  -- sum_hops    exchange
+			//unsigned int hops_gap  = v_vit->property().sum_hops - u_vit->property().sum_hops + 1; 
+			//generalized reduced_cost = edge_weight + edge_cost/alpha + alpha*(num_hops=1) + dest_v.occurrence *(alpha*10.0)
+			//int alpha_occur = (v_vit->property().occurrence > 7000) ? int(alpha*10.0) : int(alpha*10.0);
+			
+            //float reduced_cost = v_vit->property().min_cost - u_vit->property().min_cost + eit->property().cost + v_vit->property().occurrence*alpha_occur; 
+            float reduced_weight = v_vit->property().weight - u_vit->property().weight + eit->property().cost; 
+            
+            eit->property().reduced_cost = reduced_weight;
+            u_vit->property().sorted_edges_of_vertex.push_back(pair_IntFlt(v,reduced_weight));     // pair: id (outedge), reduced_cost
         }
+
         sort(u_vit->property().sorted_edges_of_vertex.begin(), u_vit->property().sorted_edges_of_vertex.end(),
             [](pair_IntFlt vecInput_1, pair_IntFlt vecInput_2) {return (vecInput_1.second < vecInput_2.second);} );
-
-        #ifdef TOPKSP_DEBUG
-            cout<<"the sorted_edges_of_vertex based on reduced cost is:"<<endl;
-            cout<<"current ID is "<<u_vit->id()<<". The sorted_edges_of_vertex is: ";
-            displayVectorOrListOfPairContents(u_vit->property().sorted_edges_of_vertex); //debug: passed 
-        #endif        
     }
-   
-    //// (4) construct the pseudo-tree T
-    graph_tau tau;  //T.
-    priority_queue<pair_FltInt, vector<pair_FltInt>, min_comp_FltInt> PQ_KSP_candidates_tau; // X.  only store the minCost and interenl ID of tau (the last id). 
-    vector<size_t> KSPaths_lastID_tau; // for output, store the top k shortest path id of tau.
+}
 
-    // add the internal_src as the first node in tau
-    vertex_iterator_tau src_vit_tau = tau.add_vertex();
-    src_vit_tau->property().at_KSPaths = false;//src_vit_tau->property().KSPaths_record.push_back(1); // this node is at the 1st shortest path.
-    src_vit_tau->property().internal_id_of_g = internal_src; // this is internal_src
-    src_vit_tau->property().predecessor = MY_INFINITY;
-    src_vit_tau->property().min_cost = 0; 
-    src_vit_tau->property().sum_distance = 0; 
-    src_vit_tau->property().sum_hops = 0;
-    // construct the first shortest path constructed in tau
-    uint64_t internal_src_tau = src_vit_tau->id();
 
-#ifdef TOPKSP_DEBUG
-    cout<< "I come before add_partialSP_totau" <<endl;
-    cout << "internal_src = "<< internal_src <<endl;
-    cout << "internal_dest = " << internal_dest <<endl;
-    cout << "internal_src_tau = " << internal_src_tau << endl;
+//Return the shortest path for a single src-dest pair
+void getShortestPath(graph_t& g, size_t src, size_t dest, size_t min_bw, vector<size_t> &shorest_path)
+{
+    uint64_t internel_src = g.external_to_internel_id(to_string(src));
+    uint64_t internel_dest = g.external_to_internel_id(to_string(dest));
     
-    // output externel ID
-    for (int src_tmp=0; src_tmp < g.num_vertices()-1; src_tmp++)//for MPS alg simple ex. note: cannot output dest to dest
+    vertex_iterator v_cur_node = g.find_vertex(internel_src);
+    size_t cur_node = internel_src;
+
+    int num_iter = 0;
+    cout<<"Src: "<<src<<", Dest: "<<dest<<endl;
+    while (cur_node != dest and num_iter < 25)
     {
-        if (src_tmp != dest)
+        shorest_path.push_back(cur_node);
+        vector<pair_IntFlt> &neighbor_edges = v_cur_node->property().sorted_edges_of_vertex;
+        auto edge_iter = neighbor_edges.begin();
+
+        for (; edge_iter != neighbor_edges.end(); ++edge_iter)
         {
-            cout<<"the shortest path: "<<src_tmp<<"----->"<<dest<<":"<<endl;
-            output_shorest_path(g, src_tmp, dest);
-        }
+            edge_iterator cur_edge;
+            size_t cur_v_target = edge_iter->first;
+            g.find_out_edge_2id(cur_node, cur_v_target, cur_edge);
 
-    }//may terminate if there is no path between to nodes
-#endif  
-
-    vertex_iterator_tau dest_vit_tau = add_partialSP_totau(g, internal_src, internal_dest, tau, internal_src_tau);
-    PQ_KSP_candidates_tau.push( pair_FltInt(dest_vit_tau->property().min_cost, dest_vit_tau->id()) );
-
-
- 
-#ifdef TOPKSP_DEBUG
-    cout<<endl;
-    cout<<"the inital path (reversed view) at k=1 is "; 
-    cout<<"(min_cost,sum_distance,sum_hops)=("<<dest_vit_tau->property().min_cost<<","<<dest_vit_tau->property().sum_distance<<","<<dest_vit_tau->property().sum_hops<<")";
-    int tmpId = dest_vit_tau->id();    
-    vertex_iterator_tau vit_tau_tmp1 = tau.find_vertex(tmpId); 
-    cout<<"-->"<<vit_tau_tmp1->property().internal_id_of_g;
-    while (tmpId != internal_src_tau)
-    {
-        tmpId = vit_tau_tmp1->property().predecessor;  
-        vit_tau_tmp1 = tau.find_vertex(tmpId);
-        cout<<"-->"<<vit_tau_tmp1->property().internal_id_of_g;
-    }
-    cout<<endl;
-    stack<size_t> pk_vkt_nodes_tmp;
-#endif
- 
-
-    size_t k = 0;
-    size_t iter = 0; 
-    const size_t max_iter = Kvalue*10;
-    while (k<Kvalue && !PQ_KSP_candidates_tau.empty() && iter<max_iter)
-    {
-        // find the current shortest path p (may have loop)
-        size_t candi_last_id = PQ_KSP_candidates_tau.top().second; 
-
-        // X = X - {p}
-        PQ_KSP_candidates_tau.pop();          
-
-        // if p is loopless and within max_phy_dist and max_phy_hops, add it to the final KSP,   
-        bool is_loopless = is_loopless_path(g, tau, candi_last_id, internal_src_tau);
-        bool within_max_phy_dist = tau.find_vertex(candi_last_id)->property().sum_distance <= max_phy_dist;
-        bool within_max_phy_hops = tau.find_vertex(candi_last_id)->property().sum_hops     <= max_phy_hops;
-
-        if (is_loopless && within_max_phy_dist && within_max_phy_hops)  
-        {
-            KSPaths_lastID_tau.push_back(candi_last_id);
-            k++;
-        }
-
-        //note: even the current shortest path p may have loop, the new generated candidates based on p may have no loop.
-        // find the deviation path pk_vkt_nodes, the top of pk_vkt_nodes is the deviation node
-        stack<size_t> pk_vkt_nodes;
-        size_t tmp_id = candi_last_id; // KSPaths_lastID_tau.back()
-        dest_vit_tau = tau.find_vertex(tmp_id);
-        dest_vit_tau->property().at_KSPaths = true;  
-        while (tmp_id != internal_src_tau)  
-        {
-            tmp_id = dest_vit_tau->property().predecessor;
-
-            pk_vkt_nodes.push(tmp_id);
-            dest_vit_tau = tau.find_vertex(tmp_id);
-            if (dest_vit_tau->property().at_KSPaths == true) break;
-/*            {
-                size_t deviation_id = tmp_id; // not used for this deviation_id. It is the top() of pk_vkt_nodes
-                break; // great here
-            }*/
-            dest_vit_tau->property().at_KSPaths = true;  
-        }
-
-#ifdef TOPKSP_DEBUG
-        pk_vkt_nodes_tmp = pk_vkt_nodes;
-        cout<<"the values of pk_vkt_nodes at iter="<<iter<<" is ";
-        while (!pk_vkt_nodes_tmp.empty())
-        {
-            cout<<pk_vkt_nodes_tmp.top()<<"("<<tau.find_vertex(pk_vkt_nodes_tmp.top())->property().internal_id_of_g<<")"<<",";          
-            pk_vkt_nodes_tmp.pop();
-        }
-        cout<<endl<<endl;
-#endif
-        // for each node in deviation path, try to find a candidate
-        while (!pk_vkt_nodes.empty())  // for each node at pk_vkt
-        {
-            // find current deviation point: pk_top_id
-            size_t pk_top_id = pk_vkt_nodes.top();  // tmp_id--> pk_top_id
-            pk_vkt_nodes.pop();
-
-            // get out if there is loop to save time
-            if ( !is_loopless_path(g, tau, pk_top_id, internal_src_tau) )
+            if (cur_edge->property().down_bw_residue >= min_bw)
             {
+                cur_node = cur_v_target;
                 break;
             }
-
-            // find A(v), which is stored in neighborNodes_g (the first of each pair in the vector) and sorted based on reduced cost  
-            vertex_iterator_tau pk_top_vit = tau.find_vertex(pk_top_id);   //vit_tau_tmp--> pk_top_vit
-            size_t cur_deviation_id_g = pk_top_vit->property().internal_id_of_g;  // cur_deviation_id_g is the v in MPS
-            vertex_iterator tmp_vit = g.find_vertex(cur_deviation_id_g);        
-            vector<pair_IntFlt> neighborNodes_g = tmp_vit->property().sorted_edges_of_vertex;
-            // g.find_vertex_out_neighborNodes(cur_deviation_id_g, neighborNodes_g);  (this func find_vertex_out_neighborNodes is not used now)
-
-/*            // find A_Tk_(v),  (the old version for the case with loop)
-            vector<uint64_t> neighborNodes_tau, neighborNodes_tau_at_g; // 
-            tau.find_vertex_inout_neighborNodes(pk_top_id, neighborNodes_tau); // here need both in and out neigbor since the tau is directed graph
-            for (size_t idx=0; idx<neighborNodes_tau.size(); ++idx)
-            {
-                vertex_iterator_tau vit_tau_tmptmp = tau.find_vertex(neighborNodes_tau[idx]);
-                neighborNodes_tau_at_g.push_back( vit_tau_tmptmp->property().internal_id_of_g );
-            }*/
-
-            // (new version )find A_Tk_(v),  now further update it that  A_Tk_(v) contains out edges (sucsessors) and all predecessors up to internal_src_tau
-            // this update is to reduce the number of loop paths
-            vector<uint64_t> neighborNodes_tau, neighborNodes_tau_at_g; // 
-            tau.find_vertex_out_neighborNodes(pk_top_id, neighborNodes_tau); // here only need  out neigbor, the
-            for (size_t idx=0; idx<neighborNodes_tau.size(); ++idx)
-            {
-                vertex_iterator_tau vit_tau_tmptmp = tau.find_vertex(neighborNodes_tau[idx]);
-                neighborNodes_tau_at_g.push_back( vit_tau_tmptmp->property().internal_id_of_g );
-            }
-            tmp_id = pk_top_id;
-            vertex_iterator_tau vit_tau_tmp = pk_top_vit;
-            while (tmp_id != internal_src_tau)
-            {
-                tmp_id = vit_tau_tmp->property().predecessor;  
-                vit_tau_tmp = tau.find_vertex(tmp_id);
-                neighborNodes_tau_at_g.push_back(vit_tau_tmp->property().internal_id_of_g);
-            }
-
-
-#ifdef TOPKSP_DEBUG
-            cout<< "current iter is "<< iter <<", current deviation id_g is "<< cur_deviation_id_g << endl;
-            cout<< "neighborNodes_g is ";
-            displayVectorOrListOfPairContents(neighborNodes_g);
-            cout<< "neighborNodes_tau_at_g is ";
-            displayVectorOrListContents(neighborNodes_tau_at_g);
-#endif
-
-            // check the first arc in A(v) - A_Tk_(v) at Graph g:   neighborNodes_g - neighborNodes_tau_at_g             
-            for (size_t idx=0; idx<neighborNodes_g.size(); ++idx)
-            {
-                if ( !(find(neighborNodes_tau_at_g.begin(), neighborNodes_tau_at_g.end(), neighborNodes_g[idx].first) != neighborNodes_tau_at_g.end()) )
-                {
-                    // v and x is the cur_deviation_id_g and neighborNodes_g[idx].first, respectively, in MPS alg.
-                    // now add point x and edge v->x in tau  vertex_iterator
-#ifdef TOPKSP_DEBUG
-                    cout<<"the (v,x) is (" << cur_deviation_id_g <<","<<neighborNodes_g[idx].first<<")"<<endl;
-                    //cout<<endl;
-#endif
-
-                    vertex_iterator_tau dest_vit_tau = tau.add_vertex();
-                    
-
-                    edge_iterator eit_g;
-                    bool find_result = g.find_out_edge_2id(cur_deviation_id_g, neighborNodes_g[idx].first, eit_g); // for eit_g->property().cost and eit_g->property().phy_dist
-                    assert(find_result);
-
-                    dest_vit_tau->property().at_KSPaths = false;//dest_vit_tau->property().KSPaths_record.push_back(1); // this node is at the 1st shortest path.
-                    dest_vit_tau->property().predecessor = pk_top_id; // pk_top_id = pk_vkt_nodes.top();
-                    dest_vit_tau->property().internal_id_of_g = neighborNodes_g[idx].first;   
-                    dest_vit_tau->property().min_cost     = pk_top_vit->property().min_cost + eit_g->property().cost; //   
-                    dest_vit_tau->property().sum_distance = pk_top_vit->property().sum_distance + eit_g->property().phy_dist; //   
-                    dest_vit_tau->property().sum_hops     = pk_top_vit->property().sum_hops + 1;
-
-                    //cout<<"the new added node (idx_g,idx_tau) in Tau is ("<<dest_vit_tau->property().internal_id_of_g<<","<<dest_vit_tau->id()<<")"<<endl;
-                    //cout<<"the first 3 (min_cost,sum_distance,sum_hops)=("<<dest_vit_tau->property().min_cost<<","<<dest_vit_tau->property().sum_distance<<","<<dest_vit_tau->property().sum_hops<<")";
-
-                    uint64_t tau_tmp_id = dest_vit_tau->id();  // for next iteration use
-                    edge_iterator_tau eit_tau;
-                    tau.add_edge(pk_top_id,tau_tmp_id,eit_tau); // note: put all info at vertex, see dest_vit_tau
-
-                    // from neighborNodes_g[idx].first to the dest in the sssp 
-
-
-                    //cout << "neighborNodes_g[idx].first = "<< neighborNodes_g[idx].first<<endl;
-                    //cout << "internal_dest = " << internal_dest <<endl;
-                    //cout << "tau_tmp_id = " << tau_tmp_id << endl;
-
-                    if (neighborNodes_g[idx].first != internal_dest)
-                    {
-                        dest_vit_tau = add_partialSP_totau(g, neighborNodes_g[idx].first, internal_dest, tau, tau_tmp_id);
-                    }    
-                    
-
-                    //cout<< "I come here before PQ_KSP_candidates_tau"<<endl;
-                    //cout<<"dest_vit_tau->property().min_cost" << dest_vit_tau->property().min_cost << endl;
-                    //cout<<"dest_vit_tau->id()" << dest_vit_tau->id() << endl;
-
-                    PQ_KSP_candidates_tau.push( pair_FltInt(dest_vit_tau->property().min_cost, dest_vit_tau->id()) );
-
-
-#ifdef TOPKSP_DEBUG
-                    cout<<"the new added path (reversed view) at iter="<<iter<<" is ";  
-cout<<"(min_cost,sum_distance,sum_hops)=("<<dest_vit_tau->property().min_cost<<","<<dest_vit_tau->property().sum_distance<<","<<dest_vit_tau->property().sum_hops<<")";
-                    tmpId = dest_vit_tau->id();    
-                    vit_tau_tmp1 = tau.find_vertex(tmpId); 
-                    //cout<<"(tmpId,internal_src_tau) is (" << tmpId<<","<<internal_src_tau<<")"<<endl;
-                    cout<<"-->"<<vit_tau_tmp1->property().internal_id_of_g;
-                    
-                    while (tmpId != internal_src_tau)
-                    {
-                        tmpId = vit_tau_tmp1->property().predecessor;  
-                        vit_tau_tmp1 = tau.find_vertex(tmpId);
-                        cout<<"-->"<<vit_tau_tmp1->property().internal_id_of_g;
-                    }
-                    cout<<endl<<endl;
-#endif
-
-                    break;
-                } 
-            } 
-        }//while (!pk_vkt_nodes.empty())  // for each node at pk_vkt
-        
-        iter++;
-
-
-
-#ifdef TOPKSP_DEBUG
-        cout<<endl;
-        cout<<"iter just increased now iter="<<iter<<endl;//", and the pk_last_id="<<pk_last_id<<endl;
-#endif
-
-    } //while (k<Kvalue && !PQ_KSP_candidates_tau.empty() && iter<max_iter)
-
-
-
-#ifdef TOPKSP_PRINTOUT
-    // output_top_ksp: 
-    res_fstream<<"The top "<<Kvalue<<" shortest loopless paths";
-    res_fstream<<"(the acutal number of running iteration is "<<iter<<"):"<<endl;
-    if (KSPaths_lastID_tau.size()==0)
-    {
-        res_fstream<<"cannot find any path, maybe we have too much constraints!"<<endl;
-        assert(false);
-    }
-    for (size_t idx = 0; idx < KSPaths_lastID_tau.size(); ++idx)
-    {
-        size_t tmp_k = idx + 1;
-        uint64_t curr_id_tau = KSPaths_lastID_tau[idx];
-
-        vertex_iterator_tau vit_tau = tau.find_vertex(curr_id_tau);
-        res_fstream<<endl;
-        res_fstream<<"The "<<tmp_k<<" result with metrics:   ";
-        res_fstream<<"min_cost is "    <<vit_tau->property().min_cost<<"; ";
-        res_fstream<<"sum_distance is "<<vit_tau->property().sum_distance<<"; ";
-        res_fstream<<"sum_hops is "    <<vit_tau->property().sum_hops<<"."<<endl;
-
-        uint64_t curr_id_g = vit_tau->property().internal_id_of_g; 
-        uint64_t curr_exID = atoi(g.internal_to_externel_id(curr_id_g).c_str());
-        stack<uint64_t> curr_path;
-        curr_path.push(curr_exID);
-        do
-        {
-            curr_id_tau = vit_tau->property().predecessor;
-            vit_tau = tau.find_vertex(curr_id_tau);
-            curr_id_g = vit_tau->property().internal_id_of_g; 
-            curr_exID = atoi(g.internal_to_externel_id(curr_id_g).c_str());
-            curr_path.push(curr_exID);
-        } while (curr_id_tau != internal_src_tau);
-        res_fstream<<"The "<<tmp_k<<" result with path nodes: ";
-        while (!curr_path.empty())
-        {
-            res_fstream<<"-->"<<curr_path.top();
-            curr_path.pop();
         }
 
-        if ( !is_loopless_path(g, tau, KSPaths_lastID_tau[idx], internal_src_tau) )
-        {
-            res_fstream<<endl<<"wrong, this path has loop"<<endl;
-            assert(false);
-        }
-        res_fstream<<endl;
+        if(edge_iter == neighbor_edges.end())
+            cout<<"Cannot find a shortest path";
+            assert(0);
+
+        v_cur_node = g.find_vertex(cur_node);
+        num_iter++;
     }
-    if (Kvalue!=KSPaths_lastID_tau.size())
+
+    shorest_path.push_back(internel_dest);
+}
+
+
+//back tracking search
+void backTrackingSearch(graph_t& g, unordered_set<int>& invalid_nodes, size_t src, size_t dest
+                       ,size_t min_bw, vector<size_t>& stack_nodes, bool &findPath)
+{
+    //Check if tmp_node to dest is another path sharing no edge with shortest path
+    bool debug = 0; //(src == 15 && dest == 8);
+
+    if (debug)
+        printVec(stack_nodes);
+
+    size_t tmp_node = stack_nodes.back();
+    bool no_share_nodes = 1;
+    bool has_bw = 1;
+    vector<int> nodes_to_add;
+
+    //int num_iter = 0;
+
+    while (tmp_node != dest ) //&& num_iter < 30)
     {
-        res_fstream<<"Warning: the input k= "<<Kvalue<<" is too large, cannot find the required loopless paths with current constraints!"<<endl;
-        res_fstream<<"the largest possible k is "<<KSPaths_lastID_tau.size()<<endl;
+        //num_iter++;
+
+        vertex_iterator v_tmp_node = g.find_vertex(tmp_node);
+
+        if (invalid_nodes.find(int(tmp_node)) != invalid_nodes.end())
+        {
+            v_tmp_node->property().occurrence += 1;
+            no_share_nodes = 0;
+            break;
+        }
+
+        size_t pre_node = tmp_node;
+        edge_iterator edge_iter;
+
+        tmp_node = v_tmp_node->property().successor;
+        nodes_to_add.push_back(tmp_node);
+
+        bool find_edge = g.find_out_edge_2id(pre_node, tmp_node, edge_iter);
+        assert(find_edge);
+
+        if (src == 15 and dest == 8)
+        {
+            //cout<<"find_edge: "<<find_edge<<endl;
+            //cout<<"pre_node: "<<pre_node<<endl;
+            //cout<<"target_node: "<<tmp_node<<endl;
+            ////cout<<"Edge down_bw: "<< edge_iter->property().down_bw_residue <<endl;
+            //cout<<"min_bw: "<<min_bw<<endl;
+        }
+
+        if (edge_iter->property().down_bw_residue < min_bw)
+        {
+            has_bw = 0;
+            break;
+        }
+
     }
-#endif
+
+    if (no_share_nodes && has_bw)
+    {
+        stack_nodes.insert(stack_nodes.end(),nodes_to_add.begin(),nodes_to_add.end());
+        findPath = 1;
+        return;
+    }
+
+    size_t cur_node = stack_nodes.back();
+    size_t next_node;
+
+    if (debug)
+        cout<<"cur_code: "<<cur_node<<endl;
+
+    vertex_iterator cur_vit = g.find_vertex(cur_node);
+    cur_vit->property().visited = 1;
+
+    vector<pair_IntFlt> & sorted_edges = cur_vit->property().sorted_edges_of_vertex;
+    for(auto v_cost_pair = sorted_edges.begin(); v_cost_pair != sorted_edges.end(); ++v_cost_pair)
+    {
+        next_node = v_cost_pair->first;
+        edge_iterator cur_edge_iter;
+
+        //!!!!Can be optimized by modifying v_cost_pair to v_cost_bw_pair
+        bool find_edge = g.find_out_edge_2id(cur_node, next_node, cur_edge_iter);
+        assert(find_edge);
+
+        has_bw = (cur_edge_iter->property().down_bw_residue >= min_bw);
+
+        vertex_iterator next_vit = g.find_vertex(next_node);
+
+        //push the next node only if the edge has enough bandwidth
+        if ( (invalid_nodes.find(int(v_cost_pair->first)) == invalid_nodes.end()) &&  
+             has_bw && !(next_vit->property().visited) )
+        {
+            stack_nodes.push_back(next_node);
+
+            backTrackingSearch(g, invalid_nodes, src, dest, min_bw, stack_nodes, findPath);
+            if (findPath)
+                return;
+            stack_nodes.pop_back();
+        }
+    }
+
+    if (debug)
+        cout<<"back track end."<<endl;
+}
+ 
 
 
-#ifdef SIM
-    SIM_END(true);
-#endif
+//find backup path
+bool findOnePath(graph_t& g, size_t src, size_t dest, size_t min_bw, unordered_set<int>& invalid_nodes, 
+    vector<size_t> &stack_nodes)
+{
+    size_t cur_node = src;
+    bool find_path = 0;
+
+    stack_nodes.push_back(cur_node);
+
+    backTrackingSearch(g, invalid_nodes, src, dest, min_bw, stack_nodes, find_path);
+
+    //cout<<"size of stack_nodes: "<<stack_nodes.size()<<endl;
+
+    return find_path;
+}
+
+
+//shortest path with multi-constraints
+void spmcSub(ofstream& myfile, graph_t& g, size_t src, size_t dest, size_t min_bw, size_t alpha \
+            ,bool &find_path, vector<size_t> &shortest_path, vector<size_t> &backup_path, bool &recompute_g) // src and dest are exID
+{
+    //Run single src and dest
+    if (recompute_g)
+        sssp(g, src, dest, alpha);
+
+    //cout << "!!!1"<<endl;
+
+    //Compute reduced cost
+    if (recompute_g)
+        updateReducedCost(g, alpha);
+
+    //cout << "!!!2"<<", src: "<<src<<", dest: "<<dest<<", min_bw :"<<min_bw<<endl;
+    //Find shortest path
+    //getShortestPath(g, src, dest, min_bw, shortest_path);
+    unordered_set<int> empty_set = {-1};
+    find_path |=  findOnePath(g, src, dest, min_bw, empty_set, shortest_path);
+
+    //cout << "!!!3"<<", src: "<<src<<", dest: "<<dest<<", min_bw :"<<min_bw<<endl;
+
+    //Find backup path
+    unordered_set<int> invalid_nodes(shortest_path.begin(), shortest_path.end());
+    //
+    //cout<< "size of shortest path"<<shortest_path.size()<<", size of invalid_nodes "<<invalid_nodes.size()<<endl;
+    find_path &= findOnePath(g, src, dest, min_bw, invalid_nodes, backup_path);
+
+    //cout << "!!!4"<<endl;
+}
+
+//spmc: shortest path with multi-constraints
+void spmc(ofstream& myfile, graph_t& g, vector<size_t> &src, vector<size_t> &min_bw, size_t dest,  \
+          gBenchPerf_event & perf, int perf_group)
+{
+
+    perf.open(perf_group);
+    perf.start(perf_group);
+    myfile << "Src, Dst, Shortest Path, Back Up Path \n";
+
+    #ifdef SIM
+        SIM_BEGIN(true);  
+    #endif
+
+    //
+    size_t max_alpha = pow(8,10);
+    auto bw_iter = min_bw.begin();
+    size_t alpha = 1;
+
+    for (auto src_iter = src.begin(); src_iter != src.end(); ++ src_iter)
+    {
+        bool find_path = 0;
+        bool reset_occurrence = 1, recompute_g;
+        vector<size_t> shortest_path, backup_path;
+
+        recompute_g = (src_iter == src.begin()) || (alpha != 1);
+        alpha = 1;
+    
+        while (!find_path && alpha < max_alpha)
+        {
+
+            spmcSub(myfile, g, *src_iter, dest, *bw_iter, alpha, find_path, shortest_path, backup_path, recompute_g);
+
+            //cout<<"Size of spa: "<<shortest_path.size()<<endl;
+            //cout<<"Size of bpa: "<<backup_path.size()<<endl<<endl;
+
+            alpha *= 40; //int(math.sqrt(rate));
+            if (!find_path && alpha < max_alpha)
+            {
+                //cout<<"Value of find_path"<<endl;
+                reset_occurrence = 0;
+                recompute_g = 1;
+                reset_graph(g, reset_occurrence);
+                shortest_path.clear();
+                backup_path.clear();
+            }
+        }
+
+        assert(find_path);
+        //if (find_path){
+        //    //cout<<"Find the two shortest paths."<<endl;
+        //    //cout<<"Size of shortest path: "<<shortest_path.size()<<endl;
+        //    //cout<<"Size of backup path: "<<backup_path.size()<<endl<<endl;
+        //}
+        //else
+        //    cout<<"Fail to find the two shortest paths.\n"<<endl;
+
+        reset_occurrence = 1;
+        reset_graph(g, reset_occurrence);
+        advance(bw_iter, 1);
+
+        //Print results
+        myfile<<*src_iter<<","<<dest<<", ";
+        for (auto iter = shortest_path.begin(); iter != shortest_path.end(); ++iter)
+        {
+            myfile<<*iter<<"|";
+            //cout<<*iter<<"|";
+        }
+
+        myfile<<",";
+        for (auto iter = backup_path.begin(); iter != backup_path.end(); ++iter)
+        {
+            myfile<<*iter<<"|";
+            //cout<<*iter<<"|";
+        }
+    
+        myfile<<"\n";
+    }
+    
+    #ifdef SIM
+        SIM_END(true);
+    #endif
+
     perf.stop(perf_group);
     return;
 }
@@ -617,31 +546,98 @@ cout<<"(min_cost,sum_distance,sum_hops)=("<<dest_vit_tau->property().min_cost<<"
 //==============================================================//
 void arg_init(argument_parser & arg)
 {
-    //arg.add_arg("root","0","root/starting vertex");
     arg.add_arg("src","0","root/src vertex");
     arg.add_arg("dest","10","root/dest vertex");
-    arg.add_arg("Kvalue","3","root/K value");
-    arg.add_arg("max_phy_dist","100000","root/max_phy_dist");
-    arg.add_arg("max_phy_hops","100000","root/max_phy_hops");
 }
 //==============================================================//
 
+class TEST_IN
+{
+    public:
+        vector<vector<size_t> > src;
+        vector<vector<size_t> > min_bw;
+        vector<size_t> dest;
+
+        void print()
+        {
+            auto iter_des = dest.begin();
+            for (auto iter_i = src.begin(); iter_i != src.end(); ++iter_i)
+            {
+                cout<<"src nodes: ";
+                for (auto iter_j = iter_i->begin(); iter_j != iter_i->end(); ++iter_j)
+                {
+                    cout<<*iter_j<<",";
+                }
+                cout<<" dest node: "<<*iter_des<<endl;
+                advance(iter_des,1);
+            }
+        }
+};
+
+//Load AGG_pairs
+TEST_IN loadTestIn(void)
+{
+    TEST_IN res;
+
+   // new data
+    size_t raw[21][3] = {{0,    1  , 10},
+                      {0,    2  , 10},
+                      {1  ,  2  , 10},
+                      {1  ,  3  , 10},
+                      {2  ,  3  , 10},
+                      {0  ,  3  , 10},
+                      {0  , 334 , 10},
+                      {1  , 334 , 10},
+                      {2  , 334 , 10},
+                      {3  , 334 , 10},
+                      {0  , 394 , 10},
+                      {1  , 394 , 10},
+                      {2  , 394 , 10},
+                      {3  , 394 , 10},
+                      {334, 394 , 10},
+                      {0  , 557 , 10},
+                      {2  , 557 , 10},
+                      {1  , 557 , 10},
+                      {3  , 557 , 10},
+                      {334, 557 , 10},
+                      {394, 557 , 10}};
+    
+    
+    for (int i=0; i<21; i++)
+    {
+        vector<size_t> p_src;
+        vector<size_t> p_min_bw;
+        size_t p_dest = raw[i][1];
+
+        if(!res.dest.empty() && res.dest.back() == p_dest)
+        {
+            res.src.back().push_back(raw[i][0]);
+            res.min_bw.back().push_back(raw[i][2]);
+        }
+        else
+        {
+            p_src.push_back(raw[i][0]);
+            p_min_bw.push_back(raw[i][2]);
+            res.src.push_back(p_src);
+            res.dest.push_back(p_dest);
+            res.min_bw.push_back(p_min_bw);
+        }
+    }
+
+    return res;
+}
+
 
 //Initialize a graph
-void graphInit(graph_t &graph, string vfile, string efile, size_t src, size_t dest, string separator)
+void graphInit(graph_t &graph, string vfile, string efile, string separator)
 {
     cout<<"loading data... \n";
     double t1 = timer::get_usec();
     
-    #ifndef EDGES_ONLY    
-        if (graph.load_csv_vertices(vfile, true, separator, 0) == -1)
-            return;
-        if (graph.load_csv_edges(efile, true, separator, 0, 1) == -1) 
-            return;
-    #else
-        if (graph.load_csv_edges(efile, true, separator, 0, 1) == -1)
-            return;
-    #endif
+    if (graph.load_csv_vertices(vfile, true, ",", 0) == -1)
+        return;
+    if (graph.load_csv_edges(efile, true, ",", 1, 2,false, NULL) == -1) 
+        return;
 
     size_t vertex_num = graph.num_vertices();
     size_t edge_num = graph.num_edges();
@@ -653,107 +649,156 @@ void graphInit(graph_t &graph, string vfile, string efile, size_t src, size_t de
     #endif
 
     // sanity check
-    uint64_t internel_srcID = graph.external_to_internel_id(to_string(src));
-    if (graph.find_vertex(internel_srcID)==graph.vertices_end()) 
- 
-    {
-        cerr<<"wrong source vertex: "<<src<<endl;
-        assert(false);
-    }
-    uint64_t internel_destID = graph.external_to_internel_id(to_string(dest));
-    if (graph.find_vertex(internel_destID)==graph.vertices_end()) 
-    {
-        cerr<<"wrong dest vertex: "<<dest<<endl;
-        assert(false);
-    }
+    //uint64_t internel_srcID = graph.external_to_internel_id(to_string(src));
+    //if (graph.find_vertex(internel_srcID)==graph.vertices_end()) 
+    //
+    //{
+    //    cerr<<"wrong source vertex: "<<src<<endl;
+    //    assert(false);
+    //}
+    //uint64_t internel_destID = graph.external_to_internel_id(to_string(dest));
+    //if (graph.find_vertex(internel_destID)==graph.vertices_end()) 
+    //{
+    //    cerr<<"wrong dest vertex: "<<dest<<endl;
+    //    assert(false);
+    //}
 
 }
 
 //Generate several test pairs
-vector<vector<int> > genTests(int total_vertex, int AGG_pair_num)
+TEST_IN genPairsIn(size_t total_vertex, size_t max_bw, size_t max_cost, size_t max_phyd)
 {
-    vector<vector<int> > res;
-    int min, max, p_src, p_dest;
-    srand (1223);
+    TEST_IN res;
+    size_t num_pairs = 10000;
 
-    for (int i=0; i<AGG_pair_num; i++)
-    {        
-        min = 0;
-        max = 19;
-        p_src = rand()%(max-min + 1) + min;
-        
-        min  = total_vertex-20;
-        max  = total_vertex-1;                
-        p_dest = rand()%(max-min + 1) + min;
-        vector<int> pair = {p_src, p_dest}; 
-        res.push_back(pair);
+    vector<vector<size_t> > pairs;
+    unordered_set<string> visited_pairs;
+
+    for (size_t i=0; i<num_pairs; i++)
+    {
+        size_t p_src, p_dest, min_bw;
+        vector<size_t> pair;
+        string p_str;
+        srand (1223);
+
+        while (1)
+        {
+            p_src = rand() % (total_vertex);
+            p_dest = rand() % (total_vertex);
+            p_str = to_string(p_src) + "_" + to_string(p_dest);
+            if (p_src != p_dest && (visited_pairs.find(p_str) == visited_pairs.end()) ) 
+            {
+                visited_pairs.insert(p_str);
+                break;
+            }
+        }
+        min_bw = 0;//rand() % (max_bw) + 1;
+        pair.push_back(p_src); 
+        pair.push_back(p_dest); 
+        pair.push_back(min_bw); 
+        pairs.push_back(pair);
+
     }
+
+    //Get TEST_IN
+    for (size_t i=0; i<pairs.size(); i++)
+    {
+        vector<size_t> p_src;
+        vector<size_t> p_min_bw;
+        size_t p_dest = pairs[i][1];
+
+        if(!res.dest.empty() && res.dest.back() == p_dest)
+        {
+            res.src.back().push_back(pairs[i][0]);
+            res.min_bw.back().push_back(pairs[i][2]);
+        }
+        else
+        {
+            p_src.push_back(pairs[i][0]);
+            p_min_bw.push_back(pairs[i][2]);
+            res.src.push_back(p_src);
+            res.dest.push_back(p_dest);
+            res.min_bw.push_back(p_min_bw);
+        }
+    }
+    //Print res
+    //res.print();
+
     return res;
 }
 
 
-double serialTest(string vfile, string efile, size_t src, size_t dest, string separator, int AGG_pair_num, int Kvalue, int max_phy_dist, int max_phy_hops, vector<vector<int> >tests, gBenchPerf_event perf)
+double serialTest(string vfile, string efile, vector<vector<size_t> > &src, vector<vector<size_t> > &min_bw,  \
+    vector<size_t> dest, string separator, gBenchPerf_event perf )
 {
-    graph_t *graph;  
+    graph_t graph;  
+    graphInit(graph, vfile, efile, separator);
+
     double t1 = timer::get_usec();
-    int p_src, p_dest;
+    vector<size_t> p_src, p_min_bw;
+    size_t p_dest;
 
-    for (int i=0; i<AGG_pair_num; i++)
-    {
-        graph = new graph_t();
-        graphInit(*graph, vfile, efile, src, dest, separator);
-        p_src = tests[i][0]; 
-        p_dest = tests[i][1];
-        ofstream res_fstream;
+    ofstream res_fstream;
+    res_fstream.open("./test_res/serial.csv", ofstream::trunc);
+     
+    for (unsigned int i=0; i<src.size(); i++)
+    {        
+        p_src = src[i]; 
+        p_dest = dest[i];
+        p_min_bw = min_bw[i];
 
-        #ifdef TOPKSP_PRINTOUT
-            res_fstream.open("./test_res/serial_res_"+to_string(i), ofstream::trunc);
-            res_fstream<<endl<<endl<<"Now output the top "<<Kvalue<<" Shortest paths bwteen nodes: "<<p_src<<"-->"<<p_dest;
-            res_fstream<<"(run "<<i+1<<" out of "<<AGG_pair_num<<")"<<endl;
-        #endif
-        
-        top_ksp(*graph, p_src , p_dest, Kvalue, max_phy_dist, max_phy_hops, perf, 0, res_fstream);  
-        delete graph;
-
-        #ifdef TOPKSP_PRINTOUT
-            res_fstream.close();
-        #endif
+        //res_fstream.open("./test_res/parallel_res_"+to_string(idx), ofstream::trunc);
+        spmc(res_fstream, graph, p_src , p_min_bw, p_dest, perf, i);  
     }
 
+    res_fstream.close();
     double t2 = timer::get_usec();
     return t2-t1;
 }
 
 
 
-double parallelTest(string vfile, string efile, size_t src, size_t dest, string separator, int AGG_pair_num, int Kvalue, int max_phy_dist, int max_phy_hops, vector<vector<int> >tests, gBenchPerf_event perf)
+double parallelTest(string vfile, string efile, vector<vector<size_t> > &src, vector<vector<size_t> > &min_bw,  \
+    vector<size_t> dest, string separator, gBenchPerf_event perf )
 {
-    graph_t *graph;     
+    //graph_t *graph;     
     double t1 = timer::get_usec();
+    size_t thread_num = 64;
+    assert(src.size() >= thread_num);
 
-    omp_set_num_threads(AGG_pair_num);
-    #pragma omp parallel private(graph)
+    //omp_set_num_threads(src.size());
+    omp_set_num_threads(thread_num);
+    #pragma omp parallel 
     {
-        int idx = omp_get_thread_num();
-        int p_src = tests[idx][0];
-        int p_dest = tests[idx][1];
+        size_t i, idx, num_threads, num_tasks_per_thread;
+
+        idx = omp_get_thread_num();
+        num_threads = omp_get_num_threads();
+        //cout<<"number of threads: "<<num_threads<<endl;
+
+        num_tasks_per_thread = src.size()/num_threads + (src.size()%num_threads > 0);
+
         ofstream res_fstream;
+        res_fstream.open("./test_res/parallel_"+to_string(idx)+".csv");
 
-        graph = new graph_t();
-        graphInit(*graph, vfile, efile, src, dest, separator);
+        //graph = new graph_t();
+        graph_t graph;
+        graphInit(graph, vfile, efile, separator);
 
-        #ifdef TOPKSP_PRINTOUT
-            res_fstream.open("./test_res/parallel_res_"+to_string(idx), ofstream::trunc);
-            res_fstream<<endl<<endl<<"Now output the top "<<Kvalue<<" Shortest paths bwteen nodes: "<<p_src<<"-->"<<p_dest;
-            res_fstream<<"(run "<<idx+1<<" out of "<<AGG_pair_num<<")"<<endl;
-        #endif
-
-        top_ksp(*graph, p_src , p_dest, Kvalue, max_phy_dist, max_phy_hops, perf, 0, res_fstream);  
-        delete graph;
-
-        #ifdef TOPKSP_PRINTOUT
-            res_fstream.close();
-        #endif
+        for (i=idx*num_tasks_per_thread; i<(idx+1)*num_tasks_per_thread; i+=1)
+        {
+            if(i < src.size())
+            {
+                vector<size_t> p_src = src[i];    
+                vector<size_t> p_min_bw = min_bw[i];
+                size_t p_dest = dest[i];        
+                spmc(res_fstream, graph, p_src , p_min_bw, p_dest, perf, 0); 
+                //delete graph;
+            }
+        }
+        double t_idx = timer::get_usec();
+        res_fstream << "Run time: "<< t_idx-t1 <<endl;
+        res_fstream.close();       
     }
 
     double t2 = timer::get_usec(); 
@@ -764,7 +809,7 @@ double parallelTest(string vfile, string efile, size_t src, size_t dest, string 
 int main(int argc, char * argv[])
 {
     graphBIG::print();
-    cout<<"Benchmark: sssp shortest path\n";
+    cout<<"Benchmark: shortest path with multiple constraints\n";
 
     argument_parser arg;
     gBenchPerf_event perf;
@@ -775,47 +820,28 @@ int main(int argc, char * argv[])
         return -1;
     }
     string path, separator;
-    size_t src, dest, Kvalue, max_phy_hops, threadnum, AGG_pair_num, total_vertex;
-    double max_phy_dist;
     string vfile, efile;
 
     arg.get_value("dataset",path);
     arg.get_value("separator",separator);
-    arg.get_value("src",src);
-    arg.get_value("dest",dest);
-    arg.get_value("Kvalue",Kvalue);
-    arg.get_value("max_phy_dist",max_phy_dist);
-    arg.get_value("max_phy_hops",max_phy_hops);
-    arg.get_value("threadnum",threadnum);
-
+     
+    int total_vertex = 400, max_bw = 10, max_cost = 100, max_phyd = 100;
+    vfile = path + "/vertex_"+to_string(total_vertex)+".csv";  
+    efile = path + "/edge_"+to_string(total_vertex)+".csv";   
     
-    AGG_pair_num = 24;   // 5    50    100 
-    Kvalue = 30;         // 5   50    500  
-    max_phy_dist = 10;
-    max_phy_hops = 8;
-    total_vertex = 400;  // 400   4000   10000 
-    vfile = path + "/vertex400.csv";  // vertex400   vertex4000    vertex10000
-    efile = path + "/vertex400dim8_edge.csv";       
-    //  vertex400dim8_edge     vertex400dim12_edge       vertex400dim16_edge
-    //  vertex4000dim8_edge    vertex4000dim12_edge      vertex4000dim16_edge
-    //  vertex10000dim8_edge   vertex10000dim12_edge     vertex10000dim16_edge
-
-    //cout<<"Shortest Path: source-"<<root;
     cout<<"...\n";
 
-    gBenchPerf_multi perf_multi(threadnum, perf);
-
     //Generate tests
-    vector<vector<int> > tests = genTests(total_vertex, AGG_pair_num);
+    TEST_IN test = genPairsIn(total_vertex, max_bw, max_cost, max_phyd);
+    int test_num = test.src.size();
+    
     double s_time, p_time;
 
-    cout<<"AGG_pair_num is "<< AGG_pair_num <<"; Kvalue is "<<Kvalue<<endl;
-    cout<<"max_phy_dist is " << max_phy_dist <<endl;
-    cout<<"max_phy_hops is " << max_phy_hops <<endl<<endl;
-    
+    cout<<"Total number of tests is "<< test_num <<endl;    
+
     //Serial run
     cout<<"Start running serial test"<<endl;
-    s_time = serialTest(vfile, efile, src, dest, separator, AGG_pair_num, Kvalue, max_phy_dist, max_phy_hops, tests, perf);
+    s_time = serialTest(vfile, efile, test.src, test.min_bw, test.dest, separator, perf);
 
     #ifndef ENABLE_VERIFY
         cout<<"== Total ruuning time: "<<s_time<<" sec\n";
@@ -824,7 +850,7 @@ int main(int argc, char * argv[])
 
     //Parallel run
     cout<<"Start running openMP test"<<endl;
-    p_time = parallelTest(vfile, efile, src, dest, separator, AGG_pair_num, Kvalue, max_phy_dist, max_phy_hops, tests, perf);
+    p_time = parallelTest(vfile, efile, test.src, test.min_bw, test.dest, separator, perf);
     
     #ifndef ENABLE_VERIFY
         cout<<"== Total ruuning time: "<<p_time<<" sec\n";
@@ -834,7 +860,7 @@ int main(int argc, char * argv[])
     //Reseult verification
     #ifdef VERIFY_RESULTS
         bool all_identical = 1;
-        for (unsigned int i=0; i<AGG_pair_num; i++)
+        for (unsigned int i=0; i<test_num; i++)
         {
             string cmd = "diff ./test_res/serial_res_"+to_string(i)+" ./test_res/parallel_res_"+to_string(i);
             bool is_identical = system(cmd.c_str())!=0;

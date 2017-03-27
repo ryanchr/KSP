@@ -39,17 +39,6 @@ public:
 
 
 
-
-
-
-
-
-
-
-
-
-
-
 template<class VPROP, class EPROP, class CONFIG=openG_configure<VPROP,EPROP> >
 class extGraph: public Graph<VPROP, EPROP, CONFIG>
 {
@@ -295,9 +284,6 @@ public:
 
 
 
-
-
-
     /**
     *   @brief load edges from a csv file into graph.
     *   @param filename     csv file name
@@ -318,7 +304,8 @@ public:
     */
     //===================================================================//
     long int load_csv_edges(std::string filename, bool has_header, std::string separators,
-                            size_t srcpos, size_t destpos, bool dag_check=false, bool * loop_ctrl=NULL, int costpos=2, int phy_distpos=3) //int costpos=-1
+                            size_t srcpos, size_t destpos, bool dag_check=false, bool * loop_ctrl=NULL, 
+                            int mbpos=3, int ubrpos=4, int dbrpos=5, int costpos=6, int phy_distpos=7) //int costpos=-1
     {
         std::ifstream file(filename.c_str());
         if (!file.is_open())
@@ -367,6 +354,14 @@ public:
         // processing data lines
         size_t edge_num=0;
         std::vector<std::string> _pos_buffer(csv_header.size());
+
+        //Test code for print csv_header
+        //for(auto iter = csv_header.begin(); iter != csv_header.end(); iter++)
+        //{
+        //    std::cout<<*iter;
+        //}
+        //std::cout<<std::endl;
+
         while (file.good())
         {
             line_num++;
@@ -402,11 +397,27 @@ public:
             }
             if (destpos >= _pos_buffer.size())
             {
+                //std::cout<<"Destpos: "<<destpos<<" Buffer size:"<<_pos_buffer.size()<<std::endl;
                 std::cerr<<line_num<<" wrong destpos position or wrong data line in csv file\n";
                 continue;
             }
 //#ifdef EDGE_WEIGHT
             //std::cout<<"defined EDGE_WEIGHT"<<std::endl;
+            if (mbpos > 0 && mbpos >= int(_pos_buffer.size()) )
+            {
+                std::cerr<<line_num<<" wrong max_bw position or wrong data line in csv file\n";
+                continue;
+            }
+            if (ubrpos > 0 && ubrpos >= int(_pos_buffer.size()) )
+            {
+                std::cerr<<line_num<<" wrong up_bw_residue position or wrong data line in csv file\n";
+                continue;
+            }
+            if (dbrpos > 0 && dbrpos >= int(_pos_buffer.size()) )
+            {
+                std::cerr<<line_num<<" wrong down_bw_residue position or wrong data line in csv file\n";
+                continue;
+            }
             if (costpos > 0 && costpos >= int(_pos_buffer.size()) )
             {
                 std::cerr<<line_num<<" wrong costpos position or wrong data line in csv file\n";
@@ -451,7 +462,19 @@ public:
                 std::cerr<<line_num<<" error when adding edge\n";
                 continue;
             }
-//#ifdef EDGE_WEIGHT   //new with #define EDGE_WEIGHT  // new    load property data
+            //#ifdef EDGE_WEIGHT   //new with #define EDGE_WEIGHT  // new    load property data
+            if (mbpos > 0)
+            {
+                eit->property().max_bw = atof(_pos_buffer[mbpos].c_str());  
+            }
+            if (ubrpos > 0)
+            {
+                eit->property().up_bw_residue = atof(_pos_buffer[ubrpos].c_str());  
+            }
+            if (dbrpos > 0)
+            {
+                eit->property().down_bw_residue = atof(_pos_buffer[dbrpos].c_str()); 
+            }
             if (costpos > 0)
             {
                 eit->property().cost = atof(_pos_buffer[costpos].c_str());  // atoi atof   weight-->cost for name
@@ -471,7 +494,8 @@ public:
 
 
     long int load_csv_edges_2layer_map(std::string filename, bool has_header, std::string separators,
-                            size_t srcpos, size_t destpos, std::string src_prefix = "no_prefix", std::string dest_prefix = "no_prefix", bool dag_check=false, bool * loop_ctrl=NULL) //int costpos=-1
+                            size_t srcpos, size_t destpos, std::string src_prefix = "no_prefix", 
+                            std::string dest_prefix = "no_prefix", bool dag_check=false, bool * loop_ctrl=NULL) //int costpos=-1
     {
         std::ifstream file(filename.c_str());
         if (!file.is_open())
@@ -548,17 +572,7 @@ public:
                 std::cerr<<line_num<<" wrong data line in csv file\n";
                 continue;
             }
-            if (srcpos >= _pos_buffer.size())
-            {
-                std::cerr<<line_num<<" wrong src position or wrong data line in csv file\n";
-                continue;
-            }
-            if (destpos >= _pos_buffer.size())
-            {
-                std::cerr<<line_num<<" wrong destpos position or wrong data line in csv file\n";
-                continue;
-            }
-
+        
             std::string& src_str = _pos_buffer[srcpos];
             std::string& dest_str = _pos_buffer[destpos];
 
