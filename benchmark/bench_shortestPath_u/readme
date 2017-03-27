@@ -2,4 +2,9 @@ how to make:under the /GraphBIG/benchmark/-->
 make clean all
 
 how to run:under /GraphBIG/benchmark/bench_shortestPath   -->
+<<<<<<< HEAD
 ./sssp --dataset test_in/ 
+=======
+./sssp --dataset tmpData/ 
+
+>>>>>>> 70502a16f32ebf06a529e3c19ddba6edaf6dd64b
